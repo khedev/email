@@ -13,6 +13,11 @@ body { margin: 0; min-width: 0; min-height: 100vh; background: var(--background)
 .connection i, .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); display: inline-block; }
 .connection.offline i, .dot.offline, .connection.error i, .dot.error { background: var(--danger); }
 .connection.synchronizing i, .dot.synchronizing { background: var(--warning); }
+/* Connectivity is the machine's fact; a missing company transport is a
+   configuration fact. They get different tones so "local only" can never read
+   as "offline" (BUG-015). */
+.connection.local i, .dot.local { background: var(--accent); }
+.connection.connecting i, .dot.connecting { background: var(--warning); }
 .presence { display: grid; place-items: center; width: 22px; height: 22px; }
 .preview-badge { font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--accent-strong); background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 9px; padding: 3px 8px; }
 /* Shown when the accounts table could not be read, so the sign-in state is
@@ -30,6 +35,23 @@ body { margin: 0; min-width: 0; min-height: 100vh; background: var(--background)
 .presence-away i { background: var(--warning); }
 .presence-dnd i { background: var(--danger); }
 .presence-offline i { background: var(--text-muted); }
+/* The top-bar presence dot is a control now, not decoration. */
+button.presence { border: 0; background: transparent; border-radius: 50%; cursor: pointer; }
+button.presence:hover { background: var(--surface-hover); }
+
+/* Top-bar popovers (workspace identity, presence) reuse the mail actions menu
+   and anchor from their own corner. */
+.menu-backdrop { position: fixed; inset: 0; z-index: 9; border: 0; background: transparent; }
+.workspace-menu, .presence-menu { left: 0; right: auto; min-width: 220px; }
+.menu-heading { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; margin-bottom: 4px; border-bottom: 1px solid var(--border); }
+.menu-heading strong { font-size: 12px; }
+.menu-heading span { font-size: 11px; color: var(--text-muted); }
+.presence-menu button { display: flex; align-items: center; gap: 9px; }
+.presence-icon { display: grid; place-items: center; width: 14px; }
+.presence-icon i { width: 9px; height: 9px; border-radius: 50%; display: block; }
+.menu-copy { display: flex; flex-direction: column; gap: 1px; }
+.menu-copy em { font-size: 10.5px; font-style: normal; color: var(--text-muted); }
+.presence-menu button[aria-current='true'] .menu-copy strong { color: var(--accent-strong); }
 
 .icon-button { position: relative; border: 0; background: transparent; display: grid; place-items: center; padding: 7px; border-radius: var(--radius-sm); color: var(--text-secondary); }
 .icon-button:hover { background: var(--surface-hover); }

@@ -2,13 +2,29 @@ use std::collections::HashMap;
 use chrono::Utc;
 use rusqlite::{params, Connection};
 use uuid::Uuid;
-use crate::{error::AppError, mailbox::FetchedMessage, models::{Account, AccountConnection, Channel, ChatMessage, Contact, Conversation, CreateAccount, CreateContact, Draft, DraftInput, EmailDetail, EmailSummary, MessageReaction, Notification, NotificationPreference, Presence, ReactionSummary, SearchResult, SendMessageInput, SettingsEntry, SyncQueueItem, UpdateNotificationPreference}};
+use crate::{error::AppError, mailbox::FetchedMessage, models::{Account, AccountConnection, Channel, ChatMessage, Contact, Conversation, CreateAccount, CreateContact, Draft, DraftInput, EmailDetail, EmailSummary, MessageReaction, Notification, NotificationPreference, OutboundMessage, Presence, ReactionSummary, SearchResult, SendMessageInput, SettingsEntry, SyncQueueItem, UpdateNotificationPreference}};
 
 /// Stable id of the local user's own contact row. Messenger identity (the
 /// "mine" flag, reactions, channel membership) is anchored to this row, so it
 /// must exist in every build: debug seeds reuse it, release builds create it
 /// on demand (`ensure_self_identity`).
 pub const SELF_CONTACT_ID: &str = "dev-self";
+
+/// One outbound message together with the account it must leave through.
+///
+/// The connection is `None` when the account row is gone (removed after the send
+/// was queued): such a message cannot be delivered, and it is reported as failed
+/// rather than silently ignored — the same honesty the reading pane applies to
+/// every other delivery state.
+pub struct QueuedSend {
+  pub connection: Option<AccountConnection>,
+  pub message: OutboundMessage,
+}
+
+/// How long a delivery claim (`sync_queue.status = 'syncing'`) may stand before
+/// it is treated as abandoned. A run that dies mid-session leaves its claim
+/// behind, and without this the message would never be offered again.
+const DELIVERY_CLAIM_MINUTES: u32 = 5;
 
 pub struct Repositories<'a> { connection: &'a Connection }
 impl<'a> Repositories<'a> {
@@ -26,10 +42,14 @@ impl<'a> Repositories<'a> {
   }
   pub fn starred(&self) -> Result<Vec<EmailSummary>, AppError> { self.list_emails("e.is_starred = 1") }
   pub fn email(&self, id: &str) -> Result<Option<EmailDetail>, AppError> {
-    let mut statement = self.connection.prepare("SELECT id, account_id, direction, delivery_state, COALESCE(sender_name, sender_email, 'Unknown sender'), COALESCE(sender_email, ''), subject, body_text, COALESCE(received_at, created_at), is_read, is_starred FROM emails WHERE id = ?1 AND deleted_at IS NULL")?;
+    // `delivery_error` is read from the durable `send_smtp` queue item rather
+    // than a column on `emails`: the classifier already stores its fixed,
+    // non-sensitive wording there, and the reading pane shows it when a send
+    // failed.
+    let mut statement = self.connection.prepare("SELECT id, account_id, direction, delivery_state, COALESCE(sender_name, sender_email, 'Unknown sender'), COALESCE(sender_email, ''), subject, body_text, COALESCE(received_at, created_at), is_read, is_starred, (SELECT last_error FROM sync_queue WHERE entity_type = 'email' AND entity_id = emails.id AND operation = 'send_smtp') FROM emails WHERE id = ?1 AND deleted_at IS NULL")?;
     let mut rows = statement.query(params![id])?;
     match rows.next()? { Some(row) => {
-      let mut detail = EmailDetail { id: row.get(0)?, account_id: row.get(1)?, direction: row.get(2)?, delivery_state: row.get(3)?, sender_name: row.get(4)?, sender_email: row.get(5)?, subject: row.get(6)?, body_text: row.get(7)?, received_at: row.get(8)?, is_read: row.get::<_, i64>(9)? != 0, is_starred: row.get::<_, i64>(10)? != 0, to: vec![], cc: vec![], bcc: vec![] };
+      let mut detail = EmailDetail { id: row.get(0)?, account_id: row.get(1)?, direction: row.get(2)?, delivery_state: row.get(3)?, sender_name: row.get(4)?, sender_email: row.get(5)?, subject: row.get(6)?, body_text: row.get(7)?, received_at: row.get(8)?, is_read: row.get::<_, i64>(9)? != 0, is_starred: row.get::<_, i64>(10)? != 0, delivery_error: row.get(11)?, to: vec![], cc: vec![], bcc: vec![] };
       self.fill_recipients(&mut detail)?;
       Ok(Some(detail))
     }, None => Ok(None) }
@@ -183,10 +203,10 @@ impl<'a> Repositories<'a> {
   }
   /// The subset of the account row needed to re-verify a stored sign-in.
   pub fn account_connection(&self, id: &str) -> Result<Option<AccountConnection>, AppError> {
-    let mut statement = self.connection.prepare("SELECT id, email_address, imap_host, imap_port, encryption, auth_kind FROM accounts WHERE id = ?1 AND deleted_at IS NULL")?;
+    let mut statement = self.connection.prepare("SELECT id, email_address, imap_host, imap_port, smtp_host, smtp_port, encryption, auth_kind FROM accounts WHERE id = ?1 AND deleted_at IS NULL")?;
     let mut rows = statement.query(params![id])?;
     match rows.next()? {
-      Some(row) => Ok(Some(AccountConnection { id: row.get(0)?, email_address: row.get(1)?, imap_host: row.get(2)?, imap_port: row.get(3)?, encryption: row.get(4)?, auth_kind: row.get(5)? })),
+      Some(row) => Ok(Some(AccountConnection { id: row.get(0)?, email_address: row.get(1)?, imap_host: row.get(2)?, imap_port: row.get(3)?, smtp_host: row.get(4)?, smtp_port: row.get(5)?, encryption: row.get(6)?, auth_kind: row.get(7)? })),
       None => Ok(None),
     }
   }
@@ -252,6 +272,103 @@ impl<'a> Repositories<'a> {
     self.move_email_to_folder(id, "sent")?;
     self.enqueue("email", id, "send_smtp")?;
     Ok(Draft { id: id.into(), delivery_state: "queued".into(), updated_at: timestamp })
+  }
+  /// Resolves every outbound message that still needs delivering, claiming each
+  /// one for the caller.
+  ///
+  /// A message qualifies while its delivery state is `queued` (never attempted)
+  /// or `failed` (another attempt is allowed) and its durable `send_smtp` item is
+  /// unfinished. Claiming marks that item `syncing` with a `locked_at` stamp, so
+  /// two overlapping runs cannot transmit the same message — the second snapshot
+  /// simply no longer matches it. A claim older than
+  /// [`DELIVERY_CLAIM_MINUTES`] is treated as abandoned (a run that died
+  /// mid-session) and becomes eligible again. The terminal marks are what make
+  /// delivery idempotent: `completed` on success stops any future run, `failed`
+  /// on a refusal invites one. `ids` narrows the work to the messages the UI
+  /// asked about (the reading pane's Try again).
+  pub fn queued_sends(&self, ids: Option<&[String]>) -> Result<Vec<QueuedSend>, AppError> {
+    let timestamp = now();
+    // An abandoned claim is one an earlier run never finished; without this a
+    // crash mid-session would strand the message until the queue row was cleared.
+    let stale_before = (Utc::now() - chrono::Duration::minutes(DELIVERY_CLAIM_MINUTES as i64)).to_rfc3339();
+    self.connection.execute_batch("BEGIN")?;
+    let outcome = (|| -> Result<Vec<QueuedSend>, AppError> {
+      let mut statement = self.connection.prepare("SELECT e.id, e.account_id, e.sender_name, e.sender_email, e.subject, e.body_text FROM emails e WHERE e.direction = 'outbound' AND e.deleted_at IS NULL AND e.delivery_state IN ('queued', 'failed') AND EXISTS (SELECT 1 FROM sync_queue q WHERE q.entity_type = 'email' AND q.entity_id = e.id AND q.operation = 'send_smtp' AND (q.status IN ('pending', 'failed') OR (q.status = 'syncing' AND (q.locked_at IS NULL OR q.locked_at < ?1)))) ORDER BY e.created_at")?;
+      let rows = statement.query_map(params![stale_before], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<String>>(2)?, row.get::<_, Option<String>>(3)?, row.get::<_, String>(4)?, row.get::<_, String>(5)?)))?;
+      let mut sends = Vec::new();
+      for row in rows {
+        let (id, account_id, sender_name, sender_email, subject, body_text) = row?;
+        if let Some(wanted) = ids {
+          if !wanted.iter().any(|candidate| candidate == &id) {
+            continue;
+          }
+        }
+        let connection = self.account_connection(&account_id)?;
+        // The from identity prefers what the row stored (an account can be
+        // re-configured after a send was queued) and falls back to the account's
+        // own address.
+        let (from_name, from_address) = match &connection {
+          Some(account) => (sender_name.unwrap_or_else(|| account.email_address.clone()), sender_email.unwrap_or_else(|| account.email_address.clone())),
+          None => (sender_name.unwrap_or_default(), sender_email.unwrap_or_default()),
+        };
+        let mut to = Vec::new();
+        let mut cc = Vec::new();
+        let mut bcc = Vec::new();
+        let mut recipients = self.connection.prepare("SELECT recipient_type, email_address FROM email_recipients WHERE email_id = ?1 ORDER BY created_at, rowid")?;
+        let rows = recipients.query_map(params![id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?;
+        for recipient in rows {
+          let (kind, address) = recipient?;
+          match kind.as_str() {
+            "to" => to.push(address),
+            "cc" => cc.push(address),
+            "bcc" => bcc.push(address),
+            _ => {}
+          }
+        }
+        sends.push(QueuedSend { connection, message: OutboundMessage { id, from_name, from_address, to, cc, bcc, subject, body_text } });
+      }
+      // Claim before the transaction commits, so the claim and the snapshot are
+      // one atomic step: either a run sees the message and owns it, or it does
+      // not see it at all.
+      for send in &sends {
+        self.connection.execute("UPDATE sync_queue SET status = 'syncing', locked_at = ?2, updated_at = ?2 WHERE entity_type = 'email' AND entity_id = ?1 AND operation = 'send_smtp'", params![send.message.id, timestamp])?;
+      }
+      Ok(sends)
+    })();
+    match outcome {
+      Ok(sends) => { self.connection.execute_batch("COMMIT")?; Ok(sends) }
+      Err(error) => { let _ = self.connection.execute_batch("ROLLBACK"); Err(error) }
+    }
+  }
+  /// Returns claims left behind by a previous process to the queue.
+  ///
+  /// A claim (`status = 'syncing'`) cannot outlive the process that made it: an
+  /// SMTP session is never in flight at startup, so every `syncing` row found
+  /// here was abandoned by a crash or a kill. Without this reset such a message
+  /// would look in-flight (and be skipped by [`Self::queued_sends`]) until the
+  /// stale window expired, while nothing was actually sending it. Delivery
+  /// claims are the only writer of `syncing` today, and the reset is deliberately
+  /// unscoped so any future worker gets the same recovery.
+  pub fn release_abandoned_delivery_claims(&self) -> Result<i64, AppError> {
+    let released = self.connection.execute("UPDATE sync_queue SET status = 'pending', locked_at = NULL, updated_at = ?1 WHERE status = 'syncing'", params![now()])?;
+    Ok(released as i64)
+  }
+  /// Records a delivered message: the Sent copy is real mail now, and the
+  /// durable `send_smtp` item is finished so nothing retries it.
+  pub fn mark_delivery_sent(&self, id: &str) -> Result<(), AppError> {
+    let timestamp = now();
+    self.connection.execute("UPDATE emails SET delivery_state = 'sent', updated_at = ?2 WHERE id = ?1 AND direction = 'outbound'", params![id, timestamp])?;
+    self.connection.execute("UPDATE sync_queue SET status = 'completed', completed_at = ?2, last_error = NULL, locked_at = NULL, updated_at = ?2 WHERE entity_type = 'email' AND entity_id = ?1 AND operation = 'send_smtp'", params![id, timestamp])?;
+    Ok(())
+  }
+  /// Records a failed delivery attempt. The queue row keeps the classifier's
+  /// fixed wording (so the reading pane can show it) and counts one more
+  /// attempt, while the message stays retryable.
+  pub fn mark_delivery_failed(&self, id: &str, error: &str) -> Result<(), AppError> {
+    let timestamp = now();
+    self.connection.execute("UPDATE emails SET delivery_state = 'failed', updated_at = ?2 WHERE id = ?1 AND direction = 'outbound'", params![id, timestamp])?;
+    self.connection.execute("UPDATE sync_queue SET status = 'failed', attempt_count = attempt_count + 1, last_error = ?2, locked_at = NULL, updated_at = ?3 WHERE entity_type = 'email' AND entity_id = ?1 AND operation = 'send_smtp'", params![id, error, timestamp])?;
+    Ok(())
   }
   pub fn channels(&self) -> Result<Vec<Channel>, AppError> {
     let mut statement = self.connection.prepare("SELECT c.id, COALESCE(c.title, c.channel_slug, 'Untitled'), c.channel_slug, c.description, COUNT(cm.contact_id) FROM conversations c LEFT JOIN channel_members cm ON cm.channel_id = c.id WHERE c.kind = 'channel' AND c.deleted_at IS NULL GROUP BY c.id ORDER BY c.updated_at DESC")?;
@@ -441,18 +558,19 @@ impl<'a> Repositories<'a> {
   pub fn search(&self, query: &str) -> Result<Vec<SearchResult>, AppError> {
     let trimmed = query.trim();
     if trimmed.is_empty() || trimmed.len() > 200 { return Err(AppError::Validation); }
-    let mut terms = vec![];
-    for term in trimmed.split(' ') { let token = term.trim(); if !token.is_empty() { terms.push(token); } }
-    let phrase = if terms.len() == 1 { format!("{}*", terms[0]) } else { format!("\"{}\"", trimmed.replace("\"", "\"\"")) };
+    let expression = fts_match_expression(trimmed);
+    // Punctuation alone leaves nothing to search for: an empty result set, not a
+    // failed search (the user typed something the index cannot contain).
+    if expression.is_empty() { return Ok(vec![]); }
     let mut results: Vec<SearchResult> = vec![];
     let mut emails = self.connection.prepare("SELECT e.id, COALESCE(NULLIF(e.subject, ''), '(no subject)'), COALESCE(NULLIF(e.sender_name, ''), e.sender_email, '') FROM fts_emails f JOIN emails e ON e.id = f.id WHERE e.deleted_at IS NULL AND fts_emails MATCH ?1 ORDER BY rank LIMIT 8")?;
-    for (id, title, subtitle) in emails.query_map(params![phrase], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?.collect::<Result<Vec<_>, _>>().map_err(AppError::from)? { results.push(SearchResult { kind: "email".into(), id, title, subtitle }); }
+    for (id, title, subtitle) in emails.query_map(params![expression], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?.collect::<Result<Vec<_>, _>>().map_err(AppError::from)? { results.push(SearchResult { kind: "email".into(), id, title, subtitle }); }
     let mut conversations = self.connection.prepare("SELECT c.id, COALESCE(NULLIF(c.channel_slug, ''), 'channel'), substr(m.body, 1, 80) FROM fts_messages f JOIN messages m ON m.id = f.id JOIN conversations c ON c.id = m.conversation_id WHERE m.deleted_at IS NULL AND c.deleted_at IS NULL AND fts_messages MATCH ?1 ORDER BY rank LIMIT 8")?;
-    for (id, title, subtitle) in conversations.query_map(params![phrase], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?.collect::<Result<Vec<_>, _>>().map_err(AppError::from)? { results.push(SearchResult { kind: "message".into(), id, title, subtitle }); }
+    for (id, title, subtitle) in conversations.query_map(params![expression], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?.collect::<Result<Vec<_>, _>>().map_err(AppError::from)? { results.push(SearchResult { kind: "message".into(), id, title, subtitle }); }
     let mut people = self.connection.prepare("SELECT c.id, c.name, COALESCE(NULLIF(c.email, ''), NULLIF(c.department, ''), '') FROM fts_contacts f JOIN contacts c ON c.id = f.id WHERE c.deleted_at IS NULL AND fts_contacts MATCH ?1 ORDER BY rank LIMIT 8")?;
-    for (id, title, subtitle) in people.query_map(params![phrase], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?.collect::<Result<Vec<_>, _>>().map_err(AppError::from)? { results.push(SearchResult { kind: "contact".into(), id, title, subtitle }); }
+    for (id, title, subtitle) in people.query_map(params![expression], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?.collect::<Result<Vec<_>, _>>().map_err(AppError::from)? { results.push(SearchResult { kind: "contact".into(), id, title, subtitle }); }
     let mut rooms = self.connection.prepare("SELECT c.id, COALESCE(NULLIF(c.title, ''), c.channel_slug, 'channel'), COALESCE(NULLIF(c.description, ''), '') FROM fts_conversations f JOIN conversations c ON c.id = f.id WHERE c.deleted_at IS NULL AND fts_conversations MATCH ?1 ORDER BY rank LIMIT 8")?;
-    for (id, title, subtitle) in rooms.query_map(params![phrase], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?.collect::<Result<Vec<_>, _>>().map_err(AppError::from)? { results.push(SearchResult { kind: "channel".into(), id, title, subtitle }); }
+    for (id, title, subtitle) in rooms.query_map(params![expression], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?.collect::<Result<Vec<_>, _>>().map_err(AppError::from)? { results.push(SearchResult { kind: "channel".into(), id, title, subtitle }); }
     Ok(results)
   }
   pub fn set_contact_favorite(&self, id: &str, favorite: bool) -> Result<(), AppError> { self.connection.execute("UPDATE contacts SET favorite = ?2, updated_at = ?3, sync_status = 'pending', sync_version = sync_version + 1 WHERE id = ?1 AND deleted_at IS NULL", params![id, favorite as i64, now()])?; self.enqueue("contact", id, "update")?; Ok(()) }
@@ -513,4 +631,27 @@ fn now() -> String { Utc::now().to_rfc3339() }
 fn validate_required(value: &str) -> Result<(), AppError> { if value.trim().is_empty() || value.len() > 255 { Err(AppError::Validation) } else { Ok(()) } }
 fn validate_email(value: &str) -> Result<(), AppError> { if value.len() > 320 || !value.contains('@') { Err(AppError::Validation) } else { Ok(()) } }
 fn is_mail_role(role: &str) -> bool { role == "inbox" || role == "sent" || role == "drafts" || role == "archive" || role == "trash" }
+
+/// Builds an FTS5 `MATCH` expression from whatever the user typed.
+///
+/// A search box is not a query language. Characters FTS5 treats as syntax
+/// (`"`, `(`, `)`, `:`, `*`, `^`, `-`) and the bare `AND`/`OR`/`NOT`/`NEAR`
+/// keywords must be searched as data, or a stray quote or a pasted address fails
+/// the whole search with a syntax error that reads as "search is broken"
+/// (BUG-010). Terms are reduced to their searchable characters and quoted, and a
+/// single term keeps its prefix match so "maya" still finds "Maya Chen".
+pub fn fts_match_expression(query: &str) -> String {
+  let kept: Vec<String> = query
+    .split_whitespace()
+    .map(|term| term.chars().filter(|character| character.is_alphanumeric() || matches!(character, '_' | '@' | '.' | '\'')).collect::<String>())
+    .filter(|term| !term.is_empty())
+    .collect();
+  match kept.len() {
+    0 => String::new(),
+    1 => format!("\"{}\"*", kept[0]),
+    // Several words stay a phrase, so they must appear together (the previous
+    // behaviour, minus the unescaped input that could break the parser).
+    _ => format!("\"{}\"", kept.join(" ")),
+  }
+}
 

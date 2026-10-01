@@ -1,3 +1,38 @@
+/** What the connection indicator needs to say, and how it should look.
+ *
+ *  Connectivity ("does this computer have a network?") and configuration ("is a
+ *  company-server transport set up?") are different facts. The old indicator ran
+ *  them together: it rendered "Offline" on every launch because the sync
+ *  transport is never configured, even on a machine with working internet
+ *  (BUG-015). `online` is the machine's own answer (`navigator.onLine`, kept
+ *  live by the shell's listeners); the transport and queue facts come from the
+ *  sync overview. */
+export interface ConnectionInputs {
+  online: boolean;
+  busy: boolean;
+  sync: { state: string; failed: number; detail?: string | null } | null;
+  health: { state: string } | null;
+}
+
+export interface ConnectionView {
+  label: string;
+  tone: 'offline' | 'error' | 'synchronizing' | 'local' | 'connecting';
+  hint: string;
+}
+
+/** No company transport is configured — a configuration fact, stated as one. */
+const LOCAL_ONLY_HINT = 'No company-server transport is configured. Mail is fetched over IMAP and delivered over SMTP on demand; changes are saved on this device.';
+
+export function connectionView({ online, busy, sync, health }: ConnectionInputs): ConnectionView {
+  // A missing network is the only case that justifies the word "Offline".
+  if (!online) return { label: 'Offline', tone: 'offline', hint: 'This computer has no network connection.' };
+  // Work in progress outranks a stale failure count: something is happening now.
+  if (busy || sync?.state === 'synchronizing') return { label: 'Syncing', tone: 'synchronizing', hint: 'Fetching mail and sending queued messages.' };
+  if (sync?.state === 'error' || health?.state === 'error' || (sync?.failed ?? 0) > 0) return { label: 'Sync error', tone: 'error', hint: sync?.detail ?? 'Some changes could not be sent and need a retry.' };
+  if (!sync && !health) return { label: 'Connecting', tone: 'connecting', hint: 'Reading the local status…' };
+  return { label: 'Local only', tone: 'local', hint: LOCAL_ONLY_HINT };
+}
+
 export function initials(name: string): string {
   const parts = name.split(/\s+/).filter(Boolean);
   return parts.slice(0, 2).map(part => part[0]).join('').toUpperCase();

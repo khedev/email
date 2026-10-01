@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Archive, AtSign, Bell, ChevronDown, CircleHelp, Command, FileText, Inbox, Menu, MessageSquareText, PanelLeftClose, Plus, Search, Send, Settings, Star, Trash2, Users, X } from 'lucide-react';
-import { getAppHealth, getAppSettings, getAccounts, getPresence, getSyncOverview, getUnreadNotificationCount, isNative, openDirectMessage as openDirectMessageWith, setAppSetting, type Account, type AppHealth, type DensityPreference, type PresenceStatus, type SyncOverview, type ThemePreference } from '../platform/tauri';
+import { commandError, getAppHealth, getAppSettings, getAccounts, getPresence, getSyncOverview, getUnreadNotificationCount, isNative, deliverQueuedMail, openDirectMessage as openDirectMessageWith, setAppSetting, setPresenceStatus, syncMail, type Account, type AppHealth, type DensityPreference, type PresenceStatus, type SyncOverview, type ThemePreference } from '../platform/tauri';
 import { PaneSplitter } from './PaneSplitter';
 import { Composer } from './Composer';
 import { ContactsView } from './ContactsView';
@@ -10,7 +10,7 @@ import { NotificationPanel } from './NotificationPanel';
 import { SearchPalette } from './SearchPalette';
 import { SettingsView } from './SettingsView';
 import { LoginView } from './LoginView';
-import { initials } from './util';
+import { connectionView, initials } from './util';
 
 const MAIL_VIEWS: { label: MailViewKind; icon: typeof Inbox }[] = [
   { label: 'Inbox', icon: Inbox }, { label: 'Starred', icon: Star }, { label: 'Sent', icon: Send },
@@ -20,6 +20,14 @@ const MESSENGER_VIEWS: { label: AppView; icon: typeof AtSign }[] = [
   { label: 'Messages', icon: MessageSquareText }, { label: 'Threads', icon: AtSign }, { label: 'Channels', icon: Users },
 ];
 const MAIL_SET = new Set(['Inbox', 'Starred', 'Sent', 'Drafts', 'Archive', 'Trash']);
+// The top-bar presence menu offers the same four states the Settings control
+// does — the wording is kept in step with `SettingsView.PRESENCES`.
+const PRESENCES: { value: PresenceStatus; label: string; hint: string }[] = [
+  { value: 'online', label: 'Online', hint: 'Available for conversations' },
+  { value: 'away', label: 'Away', hint: 'Temporarily unavailable' },
+  { value: 'dnd', label: 'Do not disturb', hint: 'Pause mentions and alerts' },
+  { value: 'offline', label: 'Offline', hint: 'Appear unavailable' },
+];
 const clampWidth = (value: number, min: number, max: number, fallback: number) => Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
 const native = isNative();
 
@@ -42,6 +50,16 @@ export function App() {
   const [density, setDensity] = useState<DensityPreference>('comfortable');
   const [fontSize, setFontSize] = useState('13');
   const [presence, setPresence] = useState<PresenceStatus>('offline');
+  // Connectivity is the machine's own fact and the webview is the only place
+  // that knows it (`navigator.onLine`), so it is tracked here rather than being
+  // guessed from the sync transport (BUG-015). `busy` marks an in-flight fetch,
+  // and `statusNote` is the transient line the status bar shows for actions the
+  // user cannot otherwise see (a palette sync, a failed preference write).
+  const [online, setOnline] = useState(() => (typeof navigator === 'undefined' ? true : navigator.onLine));
+  const [busy, setBusy] = useState(false);
+  const [statusNote, setStatusNote] = useState('');
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [presenceOpen, setPresenceOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [health, setHealth] = useState<AppHealth>({ state: navigator.onLine ? 'online' : 'offline', lastSyncAt: null });
   const [sync, setSync] = useState<SyncOverview | null>(null);
@@ -92,6 +110,31 @@ export function App() {
     } }).catch(() => undefined);
   }, []);
 
+  // The browser reports network changes; a one-time read at boot is why the old
+  // indicator never moved (BUG-015). This is the truth the "Offline" label uses.
+  useEffect(() => {
+    const goOnline = () => setOnline(true);
+    const goOffline = () => setOnline(false);
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => { window.removeEventListener('online', goOnline); window.removeEventListener('offline', goOffline); };
+  }, []);
+
+  // The badge must not go stale while the window stays open: notifications are
+  // written by fetches and deliveries without telling the shell (BUG-013).
+  useEffect(() => {
+    const timer = window.setInterval(() => { getUnreadNotificationCount().then(setUnreadCount).catch(() => undefined); }, 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  // A status note reports one action; it clears itself so the bar returns to the
+  // standing queue summary.
+  useEffect(() => {
+    if (!statusNote) return;
+    const timer = window.setTimeout(() => setStatusNote(''), 8_000);
+    return () => window.clearTimeout(timer);
+  }, [statusNote]);
+
   useEffect(() => {
     const root = document.documentElement;
     const resolved = theme === 'system' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme;
@@ -105,7 +148,7 @@ export function App() {
       if ((event.key === 'k' || event.key === 'K') && (event.ctrlKey || event.metaKey)) { event.preventDefault(); setPaletteOpen(open => !open); }
       else if (event.key === 'm' && (event.ctrlKey || event.metaKey) && event.shiftKey) { event.preventDefault(); openCompose(); }
       else if (event.key === 'n' && (event.ctrlKey || event.metaKey) && !event.shiftKey) { event.preventDefault(); openCompose(); }
-      else if (event.key === 'Escape') { setNavOpen(false); }
+      else if (event.key === 'Escape') { setNavOpen(false); setWorkspaceOpen(false); setPresenceOpen(false); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -114,8 +157,58 @@ export function App() {
   const openCompose = (initial?: ComposeInitial) => setComposer({ open: true, initial });
   const closeCompose = () => setComposer({ open: false });
   const refreshSync = () => getSyncOverview().then(setSync).catch(() => undefined);
-  const syncNow = () => { void refreshSync(); };
-  const toggleTheme = () => setTheme(current => current === 'dark' ? 'light' : 'dark');
+  // The palette's "Sync Now" used to re-read the queue counters and call that
+  // syncing (BUG-008). It now performs both real transports — fetch new mail
+  // over IMAP and drain queued outbound mail over SMTP — and reports what
+  // happened in the status bar, while `busy` makes the connection pill say so.
+  const syncNow = async () => {
+    if (busy) return;
+    setBusy(true); setStatusNote('Fetching mail from the server…');
+    try {
+      const fetched = await syncMail();
+      const delivered = await deliverQueuedMail();
+      const parts = [`Downloaded ${fetched} message${fetched === 1 ? '' : 's'}`];
+      if (delivered.sent.length > 0) parts.push(`sent ${delivered.sent.length}`);
+      if (delivered.failed.length > 0) parts.push(`${delivered.failed.length} need attention`);
+      setStatusNote(parts.join(' · '));
+    } catch (err) {
+      console.error('[relay] sync now failed:', err);
+      setStatusNote(commandError(err, 'Mail could not be fetched from the server.'));
+    } finally {
+      setBusy(false);
+      void refreshSync();
+    }
+  };
+  // A send that was queued but never transmitted — the window was closed before
+  // delivery ran, the network was down, or a previous attempt failed — is drained
+  // once the workspace knows an account is signed in, so it cannot sit in Sent
+  // looking sent. `queued_sends` only returns unfinished work, so a run with
+  // nothing waiting makes no connection.
+  useEffect(() => {
+    if (authState !== 'AUTHENTICATED') return;
+    let live = true;
+    void deliverQueuedMail().then(() => { if (live) void refreshSync(); }).catch(() => undefined);
+    return () => { live = false; };
+  }, [authState]);
+  // The palette's theme toggle must survive a restart, so it writes through the
+  // same store the Settings control uses (BUG-005).
+  const toggleTheme = () => {
+    const next: ThemePreference = theme === 'dark' ? 'light' : 'dark';
+    setTheme(next);
+    setAppSetting('theme', next).catch(() => setStatusNote('The theme could not be saved on this device.'));
+  };
+  // Presence is set from the top bar now; a refusal reverts the dot instead of
+  // leaving the UI claiming a state the store did not accept.
+  const changePresence = async (status: PresenceStatus) => {
+    const previous = presence;
+    setPresence(status);
+    try { await setPresenceStatus(status); }
+    catch (err) {
+      console.error('[relay] presence update failed:', err);
+      setPresence(previous);
+      setStatusNote('Presence could not be updated.');
+    }
+  };
 
   const navigate = (next: AppView, selectEmailId?: string, channelId?: string, conversationId?: string) => {
     setView(next);
@@ -151,10 +244,10 @@ export function App() {
     saveTimer.current = window.setTimeout(() => { setAppSetting(key, String(Math.round(width))).catch(error => console.error(`[relay] saving ${key} failed:`, error)); }, 400);
   };
 
-  const statusLabel = useMemo(() => {
-    const state = sync?.state ?? health.state;
-    return state === 'online' ? 'Connected' : state === 'synchronizing' ? 'Syncing' : state === 'offline' ? 'Offline' : state === 'error' ? 'Sync error' : 'Connecting';
-  }, [health, sync]);
+  // One display model for both indicators (the top-bar pill and the status bar),
+  // built from the machine's connectivity plus the store's sync facts — the two
+  // facts the old label used to run together (BUG-015).
+  const connection = useMemo(() => connectionView({ online, busy, sync, health }), [online, busy, sync, health]);
 
   const isMail = MAIL_SET.has(view);
   const mailView = view as MailViewKind;
@@ -170,17 +263,41 @@ export function App() {
     <header className="topbar">
       <button className="icon-button mobile-only" aria-label="Open navigation" aria-expanded={navOpen} onClick={() => setNavOpen(open => !open)}><Menu size={20} /></button>
       <div className="brand"><span className="brand-mark">R</span><span>relay</span></div>
-      <button className="workspace" onClick={() => navigate('Messages')}>Northstar <ChevronDown size={15} /></button>
+      {/* The workspace control used to jump to Messages while looking like a
+          switcher. It now opens what it claims to be: the workspace and the
+          account signed in to it, with the places that belong to it. */}
+      <div className="actions-anchor">
+        <button className="workspace" aria-haspopup="menu" aria-expanded={workspaceOpen} onClick={() => setWorkspaceOpen(open => !open)}>Northstar <ChevronDown size={15} /></button>
+        {workspaceOpen && <div className="actions-menu workspace-menu" role="menu">
+          <div className="menu-heading"><strong>Northstar</strong><span>{accounts[0] ? `${accounts[0].displayName} · ${accounts[0].emailAddress}` : 'No account is signed in yet'}</span></div>
+          <button role="menuitem" onClick={() => { setWorkspaceOpen(false); navigate('Inbox'); }}>Mail</button>
+          <button role="menuitem" onClick={() => { setWorkspaceOpen(false); navigate('Messages'); }}>Messenger</button>
+          <button role="menuitem" onClick={() => { setWorkspaceOpen(false); navigate('Settings'); }}>Manage accounts</button>
+        </div>}
+      </div>
       <label className="search"><Search size={17} /><input aria-label="Global search" placeholder="Search mail, messages, and people" onFocus={() => setPaletteOpen(true)} readOnly /><kbd>Ctrl K</kbd></label>
       <div className="top-actions">
         {authWarning && <span className="preview-badge auth-warning" role="status" title={authWarning}>Sign-in unverified</span>}
         {!native && <span className="preview-badge" title="Browser preview mode — no native backend is attached; data is in-memory and not saved.">Preview</span>}
-        <span className={`connection ${sync?.state ?? health.state}`}><i /> {statusLabel}</span>
-        <span className={`presence presence-${presence}`} title={`Presence: ${presence}`}><i /></span>
+        {/* Connectivity first, then the store's own facts — the reason the label
+            can no longer say "Offline" on a machine that is online (BUG-015). */}
+        <span className={`connection ${connection.tone}`} title={connection.hint} role="status"><i /> {connection.label}</span>
+        <div className="actions-anchor">
+          <button className={`presence presence-${presence}`} aria-haspopup="menu" aria-expanded={presenceOpen} title={`Presence: ${presence}`} onClick={() => setPresenceOpen(open => !open)}><i /></button>
+          {presenceOpen && <div className="actions-menu presence-menu" role="menu">
+            {PRESENCES.map(item => (
+              <button key={item.value} role="menuitem" aria-current={presence === item.value} onClick={() => { setPresenceOpen(false); void changePresence(item.value); }}>
+                <span className={`presence-icon presence-${item.value}`}><i /></span>
+                <span className="menu-copy"><strong>{item.label}</strong><em>{item.hint}</em></span>
+              </button>
+            ))}
+          </div>}
+        </div>
         <button className="icon-button" aria-label="Notifications" onClick={() => setNotificationsOpen(open => !open)}><Bell size={19} />{unreadCount > 0 && <b>{unreadCount > 9 ? '9+' : unreadCount}</b>}</button>
         <button className="avatar" aria-label="Profile and settings" title="Profile and settings" onClick={() => navigate('Settings')}>{initials(accounts[0]?.displayName || 'Relay')}</button>
       </div>
     </header>
+    {(workspaceOpen || presenceOpen) && <button className="menu-backdrop" aria-label="Close menu" onClick={() => { setWorkspaceOpen(false); setPresenceOpen(false); }} />}
     <aside className={`sidebar${navOpen ? ' open' : ''}`}>
       <div className="compose-row"><button className="compose" onClick={() => openCompose()}><Plus size={18} /><span>Compose</span></button><button className="collapse" aria-label="Collapse navigation" onClick={() => setCollapsed(open => !open)}><PanelLeftClose size={16} /></button></div>
       <NavSection title="MAIL" items={MAIL_VIEWS} active={isMail ? mailView : null} onSelect={label => navigate(label)} />
@@ -199,15 +316,23 @@ export function App() {
       : view === 'Settings' ? <SettingsView onPreferenceChange={onPreferenceChange} onAccountsChanged={refreshAccounts} />
       : null}
     <footer className="statusbar">
-      <span title={sync?.detail ?? undefined}><i className={`dot ${sync?.state ?? health.state}`} /> {sync ? `${sync.pending} queued · ` : ''}{statusLabel}</span>
-      <span>{sync && sync.failed > 0 ? `${sync.failed} change${sync.failed === 1 ? '' : 's'} need retry` : 'All changes saved locally'}</span>
+      <span title={connection.hint}><i className={`dot ${connection.tone}`} /> {sync && sync.pending > 0 ? `${sync.pending} queued · ` : ''}{connection.label}</span>
+      {/* One line, two jobs: it reports the last action the user ran from outside
+          a mail view (a palette sync, a failed preference write) and otherwise
+          the standing queue summary. */}
+      <span aria-live="polite">{statusNote || (sync && sync.failed > 0 ? `${sync.failed} change${sync.failed === 1 ? '' : 's'} need retry` : 'All changes saved locally')}</span>
       <span><Command size={13} /> Ctrl K</span>
     </footer>
-    {composer.open && <Composer onClose={closeCompose} initial={composer.initial} onQueued={id => navigate('Sent', id)} />}
+    {composer.open && <Composer onClose={closeCompose} initial={composer.initial} onQueued={queuedId => {
+      // Show the message first, then transmit it: the pane the user lands on
+      // reports the real outcome (delivered, or why it failed) as it happens.
+      navigate('Sent', queuedId);
+      void deliverQueuedMail([queuedId]).then(() => refreshSync()).catch(() => undefined);
+    }} />}
     {notificationsOpen && <NotificationPanel onClose={() => setNotificationsOpen(false)} />}
     {helpOpen && <section className="help-popover" role="dialog" aria-label="Help and keyboard shortcuts">
       <header><strong>About Relay</strong><button onClick={() => setHelpOpen(false)} aria-label="Close help"><X size={16} /></button></header>
-      <p>Relay stores your mail and conversations locally, offline. Email transport (IMAP fetch / SMTP delivery) and company-server sync are planned phases — outbound work stays safely queued until then.</p>
+      <p>Relay stores your mail and conversations locally, offline. Mail is fetched over IMAP and outbound mail is delivered over SMTP using the signed-in account; company-server sync is still a planned phase.</p>
       <dl className="shortcut-list">
         <div><dt>Command palette</dt><dd>Ctrl K</dd></div>
         <div><dt>Compose email</dt><dd>Ctrl N</dd></div>

@@ -9,7 +9,7 @@
 
 use relay_lib::database::Database;
 use relay_lib::error::AppError;
-use relay_lib::models::{CreateAccount, DraftInput, EmailSummary, SendMessageInput};
+use relay_lib::models::{AccountConnection, CreateAccount, DraftInput, EmailSummary, OutboundMessage, SendMessageInput};
 use relay_lib::repositories::Repositories;
 use relay_lib::security::{credential_ref, CredentialStore, OsKeyring};
 use relay_lib::sync::{DisabledTransport, SyncEngine};
@@ -305,9 +305,9 @@ fn queued_send_moves_mail_into_the_sent_folder() {
 }
 
 /// Queueing a send records exactly one durable `send_smtp` item and leaves it
-/// pending: nothing consumes it yet, and re-queueing the same message must not
-/// create a second piece of work. This is the contract the composer relies on
-/// when it reports a send as queued rather than delivered (BUG-023).
+/// pending until a delivery run consumes it: re-queueing the same message must
+/// not create a second piece of work. This is the contract the composer relies
+/// on when it reports a send as queued rather than delivered (BUG-023).
 #[test]
 fn queued_send_records_one_pending_delivery_item() {
   let (database, directory) = temp_database();
@@ -321,7 +321,7 @@ fn queued_send_records_one_pending_delivery_item() {
   let saves: i64 = database.connection().query_row("SELECT COUNT(*) FROM sync_queue WHERE operation = 'save_draft' AND entity_id = ?1", params![&draft.id], |row| row.get(0)).expect("count saved drafts");
   assert_eq!(saves, 1);
   let status: String = database.connection().query_row("SELECT status FROM sync_queue WHERE operation = 'send_smtp' AND entity_id = ?1", params![&draft.id], |row| row.get(0)).expect("delivery status");
-  assert_eq!(status, "pending", "no transport exists, so the work stays pending");
+  assert_eq!(status, "pending", "a freshly queued send waits for the delivery run");
   let pending = repos.pending_sync_items().expect("pending work");
   assert!(pending.iter().any(|item| item.operation == "send_smtp" && item.entity_id == draft.id), "the delivery item must be visible to whatever consumes the queue");
   close_temp(database, directory);
@@ -343,6 +343,120 @@ fn queue_send_requires_a_to_recipient() {
   assert_eq!(deliveries, 0, "a refused send must queue nothing");
   // An unknown id answers the same way: validation, never a storage failure.
   assert!(matches!(repos.queue_send("does-not-exist"), Err(AppError::Validation)));
+  close_temp(database, directory);
+}
+
+/// The delivery run receives everything it needs from the store in one snapshot:
+/// the account (with its SMTP endpoint), the sender identity, the body and every
+/// recipient list. The snapshot also claims the message, and a delivered message
+/// is never offered again — together those are what keep the queue from
+/// transmitting the same mail twice.
+#[test]
+fn queued_send_snapshots_everything_delivery_needs() {
+  let (database, directory) = temp_database();
+  let repos = Repositories::new(database.connection());
+  let draft = repos.save_draft(DraftInput { account_id: "dev-account".into(), to: vec!["maya@northstar.test".into()], cc: vec!["sam@northstar.test".into()], bcc: vec!["ops@northstar.test".into()], subject: "Snapshot me".into(), body_text: "hello".into() }, None).expect("draft");
+  repos.queue_send(&draft.id).expect("queue send");
+  let sends = repos.queued_sends(None).expect("queued sends");
+  assert_eq!(sends.len(), 1, "only the freshly queued message needs delivering");
+  let send = &sends[0];
+  let account = send.connection.as_ref().expect("the seeded account is signed in");
+  assert_eq!(account.smtp_host, "localhost", "the snapshot carries the account's SMTP endpoint");
+  assert_eq!(account.email_address, "alex@northstar.test", "the sender identity comes from the account");
+  assert_eq!(send.message.id, draft.id);
+  assert_eq!(send.message.to, vec!["maya@northstar.test".to_string()]);
+  assert_eq!(send.message.cc, vec!["sam@northstar.test".to_string()]);
+  assert_eq!(send.message.bcc, vec!["ops@northstar.test".to_string()]);
+  assert_eq!(send.message.subject, "Snapshot me");
+  assert_eq!(send.message.body_text, "hello");
+  // The snapshot claims the message while a run is in flight, so an overlapping
+  // run (and this second call) must not receive it again.
+  assert!(repos.queued_sends(None).expect("second snapshot").is_empty(), "a claimed message is not handed to a second run");
+  // Filtering by id is how the reading pane's Try again targets one message; a
+  // filter that matches nothing claims nothing.
+  assert!(repos.queued_sends(Some(&["some-other-id".to_string()])).expect("targeted snapshot").is_empty());
+  let mut keys: Vec<String> = Vec::new();
+  for send in repos.queued_sends(None).expect("third snapshot") { keys.push(send.message.id); }
+  assert!(!keys.contains(&draft.id), "the claim must survive an unrelated snapshot");
+  // A refusal returns the message to the queue (it is retryable)...
+  repos.mark_delivery_failed(&draft.id, "The mail server is temporarily not accepting mail. Try again shortly.").expect("record failure");
+  assert!(repos.queued_sends(Some(&[draft.id.clone()])).expect("targeted retry").iter().any(|send| send.message.id == draft.id), "a failed send is offered to the next run");
+  // ...while a delivery retires it for good: the completed queue item gates it out.
+  repos.mark_delivery_sent(&draft.id).expect("mark sent");
+  assert!(repos.queued_sends(None).expect("snapshot after delivery").iter().all(|send| send.message.id != draft.id), "a delivered message must never be queued again");
+  close_temp(database, directory);
+}
+
+/// A delivery claim cannot outlive the process that made it. Reopening the store
+/// must hand an abandoned `syncing` item back to the queue, or a crash mid-send
+/// would leave the message looking in flight while nothing sent it.
+#[test]
+fn reopening_the_store_releases_abandoned_delivery_claims() {
+  let (database, directory) = temp_database();
+  let draft = Repositories::new(database.connection()).save_draft(DraftInput { account_id: "dev-account".into(), to: vec!["maya@northstar.test".into()], cc: vec![], bcc: vec![], subject: "Abandoned claim".into(), body_text: "body".into() }, None).expect("draft");
+  let repos = Repositories::new(database.connection());
+  repos.queue_send(&draft.id).expect("queue send");
+  // Taking the delivery snapshot claims the message, as a run in flight would.
+  assert_eq!(repos.queued_sends(None).expect("snapshot").len(), 1);
+  let claimed: String = database.connection().query_row("SELECT status FROM sync_queue WHERE operation = 'send_smtp' AND entity_id = ?1", params![&draft.id], |row| row.get(0)).expect("queue row");
+  assert_eq!(claimed, "syncing");
+  // The process "dies" (the store closes) and the app starts again.
+  drop(database);
+  let reopened = Database::open(&directory).expect("reopen the store");
+  let after_restart = Repositories::new(reopened.connection());
+  let status: String = reopened.connection().query_row("SELECT status FROM sync_queue WHERE operation = 'send_smtp' AND entity_id = ?1", params![&draft.id], |row| row.get(0)).expect("queue row after restart");
+  assert_eq!(status, "pending", "an abandoned claim is released at startup");
+  assert!(after_restart.queued_sends(None).expect("snapshot after restart").iter().any(|send| send.message.id == draft.id), "the message is offered to the next run");
+  close_temp(reopened, directory);
+}
+
+/// A delivered message becomes `sent` and its queue item completes. That
+/// completion is the idempotency guard, and clearing the error is what removes
+/// the reading pane's failure note.
+#[test]
+fn delivered_send_is_marked_sent_and_completes_the_queue() {
+  let (database, directory) = temp_database();
+  let repos = Repositories::new(database.connection());
+  let draft = repos.save_draft(DraftInput { account_id: "dev-account".into(), to: vec!["maya@northstar.test".into()], cc: vec![], bcc: vec![], subject: "Deliver me".into(), body_text: "body".into() }, None).expect("draft");
+  repos.queue_send(&draft.id).expect("queue send");
+  repos.mark_delivery_failed(&draft.id, "The mail server is temporarily not accepting mail. Try again shortly.").expect("first attempt fails");
+  repos.mark_delivery_sent(&draft.id).expect("retry succeeds");
+  let detail = repos.email(&draft.id).expect("detail").expect("row");
+  assert_eq!(detail.delivery_state, "sent");
+  assert_eq!(detail.delivery_error, None, "a delivered message carries no failure note");
+  let (status, completed): (String, Option<String>) = database.connection().query_row("SELECT status, completed_at FROM sync_queue WHERE operation = 'send_smtp' AND entity_id = ?1", params![&draft.id], |row| Ok((row.get(0)?, row.get(1)?))).expect("queue row");
+  assert_eq!(status, "completed");
+  assert!(completed.is_some(), "completion is timestamped");
+  assert!(repos.emails_in_folder("sent").expect("sent view").iter().any(|item| item.id == draft.id), "delivered mail stays in Sent");
+  close_temp(database, directory);
+}
+
+/// A failed attempt stays retryable and records the classifier's fixed wording
+/// where the reading pane can show it, while counting the attempt. A later run
+/// can still deliver the message, which clears the note.
+#[test]
+fn failed_delivery_surfaces_a_classified_error_and_retries() {
+  let (database, directory) = temp_database();
+  let repos = Repositories::new(database.connection());
+  let draft = repos.save_draft(DraftInput { account_id: "dev-account".into(), to: vec!["maya@northstar.test".into()], cc: vec![], bcc: vec![], subject: "Fail me once".into(), body_text: "body".into() }, None).expect("draft");
+  repos.queue_send(&draft.id).expect("queue send");
+  let reason = "The mail server refused the stored sign-in for sending. Check the account password, or use an app password.";
+  repos.mark_delivery_failed(&draft.id, reason).expect("record failure");
+  let detail = repos.email(&draft.id).expect("detail").expect("row");
+  assert_eq!(detail.delivery_state, "failed");
+  assert_eq!(detail.delivery_error.as_deref(), Some(reason), "the reason reaches the reading pane");
+  let (status, attempts): (String, i64) = database.connection().query_row("SELECT status, attempt_count FROM sync_queue WHERE operation = 'send_smtp' AND entity_id = ?1", params![&draft.id], |row| Ok((row.get(0)?, row.get(1)?))).expect("queue row");
+  assert_eq!(status, "failed");
+  assert_eq!(attempts, 1);
+  // A failed message is still work for the next run — that is what makes Try
+  // again meaningful.
+  assert!(repos.queued_sends(None).expect("queued sends").iter().any(|send| send.message.id == draft.id));
+  // A second attempt is counted, and success clears the note.
+  repos.mark_delivery_failed(&draft.id, reason).expect("second failure");
+  let attempts_after: i64 = database.connection().query_row("SELECT attempt_count FROM sync_queue WHERE operation = 'send_smtp' AND entity_id = ?1", params![&draft.id], |row| row.get(0)).expect("attempt count");
+  assert_eq!(attempts_after, 2, "every attempt is counted");
+  repos.mark_delivery_sent(&draft.id).expect("retry succeeds");
+  assert_eq!(repos.email(&draft.id).expect("detail").expect("row").delivery_error, None);
   close_temp(database, directory);
 }
 
@@ -1091,5 +1205,203 @@ fn panics_in_command_work_become_errors() {
   assert_eq!(relay_lib::guard::panic_message(&*literal), "boom");
   let formatted: Box<dyn std::any::Any + Send> = Box::new(String::from("boom 2"));
   assert_eq!(relay_lib::guard::panic_message(&*formatted), "boom 2");
+}
+
+
+/// The classifier turns a failed attempt into fixed wording rather than the
+/// server's own text, which can quote the message or the command back at us. A
+/// Google authorization refusal is kept distinct from a password refusal because
+/// the remedy the user needs is different.
+#[test]
+fn smtp_failure_classification_is_fixed_and_specific() {
+  use relay_lib::transport::failure_message;
+  // Authentication refusals: the password remedy and the Google remedy differ.
+  let password = failure_message(Some(535), false, true, false);
+  let google = failure_message(Some(535), true, true, false);
+  assert!(password.contains("Check the account password"), "password refusal points at the credential: {password}");
+  assert!(google.contains("Sign in with Google again"), "an OAuth refusal points at Google: {google}");
+  assert_ne!(password, google);
+  // A refused message names the likely cause instead of blaming the credentials.
+  assert!(failure_message(Some(550), false, true, false).contains("recipient addresses"));
+  // A transient refusal asks for a retry rather than a configuration change.
+  assert!(failure_message(Some(451), false, true, false).contains("Try again shortly"));
+  // A dropped connection and a timeout share the same honest answer.
+  assert!(failure_message(None, false, false, false).contains("dropped while sending"));
+  assert!(failure_message(None, false, true, true).contains("dropped while sending"));
+  // An unrecognized code still gets an answer; it never falls through to nothing.
+  let unknown = failure_message(Some(555), false, true, false);
+  assert!(unknown.contains("Sending failed"), "unexpected answer: {unknown}");
+}
+
+/// The assembled message must carry the sender, the recipients, the subject and
+/// the body, and a Bcc recipient must reach the envelope without being written
+/// into the transmitted headers — a leaked Bcc is a privacy bug, not a cosmetic
+/// one. A non-ASCII subject is encoded rather than sent as raw bytes.
+#[test]
+fn outbound_message_encodes_recipients_and_body() {
+  use relay_lib::transport::build_message;
+  let built = build_message(&OutboundMessage {
+    id: "encode-1".into(),
+    from_name: "Alex Morgan".into(),
+    from_address: "alex@northstar.test".into(),
+    to: vec!["maya@northstar.test".into()],
+    cc: vec!["sam@northstar.test".into()],
+    bcc: vec!["ops@northstar.test".into()],
+    subject: "Delivery check".into(),
+    body_text: "No spool, no relay, just a test.".into(),
+  }).expect("assemble");
+  let raw = String::from_utf8(built.formatted()).expect("utf-8 message");
+  assert!(raw.contains("Alex Morgan") && raw.contains("<alex@northstar.test>"), "sender transmitted: {raw}");
+  assert!(raw.contains("maya@northstar.test") && raw.contains("sam@northstar.test"), "visible recipients transmitted: {raw}");
+  assert!(raw.contains("Subject: Delivery check"), "subject transmitted: {raw}");
+  assert!(raw.contains("No spool, no relay, just a test."), "body transmitted: {raw}");
+  assert!(!raw.to_lowercase().contains("bcc"), "a Bcc recipient must never appear in the headers: {raw}");
+  // The envelope is what the relay is told to deliver to, so it still carries it.
+  let envelope = built.envelope();
+  assert!(envelope.to().iter().any(|address| address.to_string() == "ops@northstar.test"), "the Bcc recipient stays on the envelope");
+  // A subject outside ASCII is encoded (RFC 2047) instead of being sent raw.
+  let encoded = build_message(&OutboundMessage { id: "encode-2".into(), from_name: String::new(), from_address: "alex@northstar.test".into(), to: vec!["maya@northstar.test".into()], cc: vec![], bcc: vec![], subject: "Grüße aus Berlin".into(), body_text: "body".into() }).expect("assemble");
+  let encoded_raw = String::from_utf8(encoded.formatted()).expect("utf-8 message");
+  assert!(encoded_raw.to_lowercase().contains("=?utf-8?"), "a non-ASCII subject is encoded: {encoded_raw}");
+  assert!(!encoded_raw.contains("Grüße aus Berlin"), "the raw non-ASCII subject must not be transmitted: {encoded_raw}");
+}
+
+
+/// A minimal plaintext SMTP relay for one session: greeting, EHLO, AUTH,
+/// MAIL/RCPT/DATA/QUIT. The DATA payload is reported through `capture` the moment
+/// it arrives — after the relay has accepted it — so the test never waits out the
+/// session's dismantling; the session itself runs on until the client says QUIT
+/// or the socket closes. A connection that ends without mail (the client's
+/// reachability probe opens and drops one before the real session) simply ends.
+fn serve_smtp(stream: std::net::TcpStream, capture: &std::sync::mpsc::Sender<String>) {
+  use std::io::{BufRead, BufReader, Write};
+  // A socket accepted from a non-blocking listener can itself arrive
+  // non-blocking (Windows does this), which would make every read return
+  // `WouldBlock` instead of waiting for the client's commands.
+  stream.set_nonblocking(false).ok();
+  stream.set_read_timeout(Some(std::time::Duration::from_secs(10))).ok();
+  let mut writer = stream.try_clone().expect("clone relay socket");
+  let mut reader = BufReader::new(stream);
+  let reply = |writer: &mut std::net::TcpStream, line: &str| { let _ = writer.write_all(line.as_bytes()); };
+  reply(&mut writer, "220 relay.test ESMTP ready\r\n");
+  let mut line = String::new();
+  loop {
+    line.clear();
+    match reader.read_line(&mut line) {
+      Ok(0) | Err(_) => return,
+      Ok(_) => {}
+    }
+    let command = line.trim_end().to_ascii_uppercase();
+    if command.starts_with("EHLO") || command.starts_with("HELO") {
+      reply(&mut writer, "250-relay.test\r\n250-AUTH PLAIN LOGIN\r\n250-8BITMIME\r\n250 SMTPUTF8\r\n");
+    } else if command.starts_with("AUTH") {
+      // Any credentials are accepted: what is under test is the delivery path,
+      // not the relay's opinion of the password.
+      reply(&mut writer, "235 2.7.0 authentication successful\r\n");
+    } else if command.starts_with("DATA") {
+      reply(&mut writer, "354 end data with <CRLF>.<CRLF>\r\n");
+      let mut message = String::new();
+      loop {
+        let mut chunk = String::new();
+        match reader.read_line(&mut chunk) {
+          Ok(0) | Err(_) => break,
+          Ok(_) => {}
+        }
+        if chunk == ".\r\n" || chunk == ".\n" { break; }
+        message.push_str(&chunk);
+      }
+      reply(&mut writer, "250 2.0.0 message accepted\r\n");
+      let _ = capture.send(message);
+    } else if command.starts_with("QUIT") {
+      reply(&mut writer, "221 2.0.0 bye\r\n");
+      return;
+    } else {
+      reply(&mut writer, "250 2.1.0 ok\r\n");
+    }
+  }
+}
+
+/// The whole send path over a real socket: a loopback relay speaks plaintext SMTP
+/// (the account's encryption mode is `none`, exactly what the store holds for
+/// such a server), the client authenticates, and the message that arrives is the
+/// one the store assembled. This is the delivery counterpart of the fetch
+/// fixtures: protocol behaviour proven without live credentials.
+#[test]
+fn smtp_delivery_reaches_a_loopback_relay() {
+  use relay_lib::transport::{deliver, DeliveryOutcome};
+  use relay_lib::verify::MailCredential;
+  use std::io::ErrorKind;
+  use std::net::TcpListener;
+  use std::sync::mpsc;
+  use std::time::{Duration, Instant};
+
+  let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback relay");
+  let port = listener.local_addr().expect("relay address").port();
+  let (relay_tx, relay_rx) = mpsc::channel::<String>();
+  // The relay thread is deliberately detached: the payload arrives on the channel
+  // as soon as the relay accepts it, and waiting for the session to be torn down
+  // afterwards would only add the client's own QUIT timing to the test.
+  let _relay = std::thread::spawn(move || {
+    listener.set_nonblocking(true).expect("non-blocking accept");
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while Instant::now() < deadline {
+      match listener.accept() {
+        Ok((stream, _)) => serve_smtp(stream, &relay_tx),
+        Err(ref error) if error.kind() == ErrorKind::WouldBlock => std::thread::sleep(Duration::from_millis(20)),
+        Err(_) => return,
+      }
+    }
+  });
+  let connection = AccountConnection { id: "loopback".into(), email_address: "alex@northstar.test".into(), imap_host: "127.0.0.1".into(), imap_port: port, smtp_host: "127.0.0.1".into(), smtp_port: port, encryption: "none".into(), auth_kind: "password".into() };
+  let message = OutboundMessage { id: "loopback-1".into(), from_name: "Alex Morgan".into(), from_address: "alex@northstar.test".into(), to: vec!["maya@northstar.test".into()], cc: vec![], bcc: vec![], subject: "Loopback delivery".into(), body_text: "This sentence must arrive intact.".into() };
+  let outcomes = deliver(&connection, MailCredential::Password("app-password"), &[message]);
+  assert_eq!(outcomes.len(), 1);
+  assert_eq!(outcomes[0].0, "loopback-1");
+  assert!(matches!(outcomes[0].1, DeliveryOutcome::Sent), "the relay accepted the message: {:?}", outcomes[0].1);
+  // The relay hands the payload over as soon as it accepts the message.
+  let received = relay_rx.recv_timeout(Duration::from_secs(30)).expect("the relay received the message");
+  assert!(received.contains("Subject: Loopback delivery"), "subject transmitted: {received}");
+  assert!(received.contains("This sentence must arrive intact."), "body transmitted: {received}");
+  assert!(received.contains("maya@northstar.test"), "recipient transmitted: {received}");
+}
+
+
+/// The search box is not an FTS5 query language: punctuation, quotes and the
+/// bare AND/OR/NOT/NEAR keywords must be searched as data. A stray quote or a
+/// pasted address used to fail the whole search with a syntax error that the
+/// palette reported as "search could not be completed" (BUG-010).
+#[test]
+fn search_treats_operator_characters_as_data() {
+  let (database, directory) = temp_database();
+  let repos = Repositories::new(database.connection());
+  // Ordinary terms keep working, including the prefix match for one word.
+  assert!(!repos.search("planning").expect("plain term").is_empty(), "a normal word still finds seeded mail");
+  assert!(!repos.search("plan").expect("short prefix").is_empty(), "a single term keeps its prefix match");
+  // Hostile input must always answer — with results or none, never an error.
+  for hostile in ["a\"b", "(", ")", ":\"x", "*", "^^^", "-x", "NEAR/2", "AND", "OR", "NOT", "maya@northstar.test", "\"\"\"", ")(*:"] {
+    let outcome = repos.search(hostile);
+    assert!(outcome.is_ok(), "{hostile} must not fail the search: {:?}", outcome.err());
+  }
+  // Punctuation alone leaves nothing searchable: an empty result set, not a
+  // failure. A blank/oversized query is still a validation error.
+  assert!(repos.search("():").expect("punctuation only").is_empty());
+  assert!(repos.search("   ").is_err());
+  close_temp(database, directory);
+}
+
+/// The MATCH expression is built from the user's input, never from its syntax:
+/// operators are stripped, terms are quoted (so keywords are words), and a lone
+/// term keeps the prefix match that makes type-ahead useful.
+#[test]
+fn search_expressions_quote_and_strip_the_query() {
+  use relay_lib::repositories::fts_match_expression;
+  assert_eq!(fts_match_expression("maya"), "\"maya\"*");
+  assert_eq!(fts_match_expression("maya chen"), "\"maya chen\"");
+  assert_eq!(fts_match_expression("AND"), "\"AND\"*", "a keyword becomes a word");
+  assert_eq!(fts_match_expression("a\"b"), "\"ab\"*");
+  assert_eq!(fts_match_expression("NEAR/2"), "\"NEAR2\"*");
+  assert_eq!(fts_match_expression("a.b@c.d"), "\"a.b@c.d\"*");
+  assert_eq!(fts_match_expression("():"), "", "nothing searchable is left");
+  assert_eq!(fts_match_expression("  "), "");
 }
 

@@ -4,13 +4,19 @@ export type PresenceStatus = 'online' | 'away' | 'dnd' | 'offline';
 export type ThemePreference = 'light' | 'dark' | 'system';
 export type DensityPreference = 'comfortable' | 'compact';
 
+// Store health, not connectivity: `state` is "error" while queued work has
+// failed, and `lastSyncAt` is when mail last synced. Whether this computer has a
+// network is reported by the webview (`navigator.onLine`), which is what the
+// connection indicator uses (BUG-015).
 export interface AppHealth { state: SyncState; lastSyncAt: string | null; }
 export interface EmailSummary { id: string; senderName: string; subject: string; preview: string; receivedAt: string; isRead: boolean; isStarred: boolean; }
-export interface EmailDetail extends EmailSummary { accountId: string; direction: 'inbound' | 'outbound'; deliveryState: 'draft' | 'queued' | 'received' | 'sent'; senderEmail: string; bodyText: string; to: string[]; cc: string[]; bcc: string[]; }
+export interface EmailDetail extends EmailSummary { accountId: string; direction: 'inbound' | 'outbound'; deliveryState: 'draft' | 'queued' | 'failed' | 'received' | 'sent'; senderEmail: string; bodyText: string; to: string[]; cc: string[]; bcc: string[]; deliveryError: string | null; }
 export interface Account { id: string; displayName: string; emailAddress: string; status: string; connectionState: 'unverified' | 'connected' | 'error'; connectionError: string | null; lastVerifiedAt: string | null; }
 export interface CreateAccountInput { displayName: string; emailAddress: string; imapHost: string; imapPort: number; smtpHost: string; smtpPort: number; encryption: string; authKind: string; }
 export interface DraftInput { accountId: string; to: string[]; cc: string[]; bcc: string[]; subject: string; bodyText: string; }
 export interface Draft { id: string; deliveryState: 'draft' | 'queued'; updatedAt: string; }
+export interface DeliveryFailure { id: string; error: string; }
+export interface DeliveryReport { sent: string[]; failed: DeliveryFailure[]; }
 export interface Channel { id: string; title: string; slug: string | null; description: string | null; memberCount: number; }
 export interface Conversation { id: string; kind: 'channel' | 'dm'; title: string; description: string | null; memberCount: number; lastActivityAt: string; }
 export interface ChatMessage { id: string; conversationId: string; threadId: string; senderName: string; body: string; sentAt: string; replyCount: number; lastReplyAt: string | null; edited: boolean; pinned: boolean; mine: boolean; reactions: ReactionSummary[]; }
@@ -79,6 +85,16 @@ export async function autoSignIn(email: string, password: string): Promise<Accou
 export async function removeAccount(id: string): Promise<void> { return invoke<void>('remove_account', { id }); }
 export async function saveDraft(input: DraftInput, draftId?: string): Promise<Draft> { return invoke<Draft>('save_draft', { input, draftId }); }
 export async function queueEmailSend(id: string): Promise<Draft> { return invoke<Draft>('queue_email_send', { id }); }
+/**
+ * Transmits outbound mail that is waiting in the local send queue.
+ *
+ * Called by the shell right after a send is queued (so transmission starts as
+ * the message opens in Sent), once on startup to drain anything a quit left
+ * behind, and by the reading pane's Try again. Omitting `ids` means "everything
+ * waiting"; per-message failures come back in the report rather than as a
+ * rejection, because one refused recipient must not hide the accepted ones.
+ */
+export async function deliverQueuedMail(ids?: string[]): Promise<DeliveryReport> { return invoke<DeliveryReport>('deliver_queued_mail', { ids: ids ?? null }); }
 export async function getChannels(): Promise<Channel[]> { return invoke<Channel[]>('get_channels'); }
 export async function getConversations(): Promise<Conversation[]> { return invoke<Conversation[]>('get_conversations'); }
 export async function openDirectMessage(contactId: string): Promise<Conversation> { return invoke<Conversation>('open_direct_message', { contactId }); }

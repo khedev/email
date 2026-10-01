@@ -2,7 +2,7 @@ use serde::Serialize;
 use std::{fs, path::Path, sync::atomic::Ordering};
 use tauri::{Manager, State};
 use tauri_plugin_notification::NotificationExt;
-use crate::{discover, error::AppError, guard, mailbox, models::{Account, AccountConnection, Channel, ChatMessage, Contact, Conversation, CreateAccount, CreateContact, Draft, DraftInput, EmailDetail, EmailSummary, MessageReaction, Notification, NotificationPreference, Presence, ReactionSummary, SearchResult, SendMessageInput, SettingsEntry, StorageUsage, SyncQueueItem, UpdateNotificationPreference}, oauth, repositories::Repositories, security::{credential_ref, delete_oauth_client_secret, delete_oauth_secret, load_oauth_client_secret, load_oauth_secret, oauth_credential_ref, save_oauth_client_secret, save_oauth_secret, CredentialStore, OsKeyring}, verify::{verify_imap_login, MailCredential, verify_xoauth2}, AppState};
+use crate::{discover, error::AppError, guard, mailbox, models::{Account, AccountConnection, Channel, ChatMessage, Contact, Conversation, CreateAccount, CreateContact, DeliveryFailure, DeliveryReport, Draft, DraftInput, EmailDetail, EmailSummary, MessageReaction, Notification, NotificationPreference, OutboundMessage, Presence, ReactionSummary, SearchResult, SendMessageInput, SettingsEntry, StorageUsage, SyncQueueItem, UpdateNotificationPreference}, oauth, repositories::Repositories, security::{credential_ref, delete_oauth_client_secret, delete_oauth_secret, load_oauth_client_secret, load_oauth_secret, oauth_credential_ref, save_oauth_client_secret, save_oauth_secret, CredentialStore, OsKeyring}, transport, verify::{verify_imap_login, MailCredential, verify_xoauth2}, AppState};
 use crate::sync::{DisabledTransport, SyncEngine, SyncOverview};
 
 fn repositories<'state>(state: &'state State<'state, AppState>) -> Result<std::sync::MutexGuard<'state, crate::database::Database>, String> { state.database.lock().map_err(|_| "Application state is unavailable".to_string()) }
@@ -10,8 +10,20 @@ fn repositories<'state>(state: &'state State<'state, AppState>) -> Result<std::s
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppHealth { state: &'static str, last_sync_at: Option<String> }
+/// Health of the local store: whether queued work has failed, and when mail last
+/// synced successfully.
+///
+/// Deliberately **not** a connectivity check. Only the webview knows whether
+/// this computer has a network (`navigator.onLine`), and the shell reports that
+/// separately; the old hard-coded `offline` here is what made the header claim
+/// the machine was offline on every launch, network or not (BUG-015).
 #[tauri::command]
-pub fn get_app_health() -> AppHealth { AppHealth { state: "offline", last_sync_at: None } }
+pub fn get_app_health(state: State<'_, AppState>) -> Result<AppHealth, String> {
+  let database = repositories(&state)?;
+  let failed: i64 = database.connection().query_row("SELECT COUNT(*) FROM sync_queue WHERE status = 'failed'", [], |row| row.get(0)).unwrap_or(0);
+  let last_sync_at = Repositories::new(database.connection()).sync_metadata("last_successful_sync").unwrap_or(None);
+  Ok(AppHealth { state: if failed > 0 { "error" } else { "online" }, last_sync_at })
+}
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DatabaseInfo { schema_version: i64, location: String }
@@ -500,6 +512,138 @@ pub fn queue_email_send(id: String, state: State<'_, AppState>) -> Result<Draft,
     AppError::Validation => "Add at least one valid recipient before sending.".to_string(),
     AppError::Database(_) | AppError::Io(_) | AppError::SecureStore(_) => "The message could not be saved locally, so nothing was queued.".to_string(),
   })
+}
+/// What the UI is told about one message after a delivery run: enough to refresh
+/// the message it is showing without refetching the whole folder.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DeliveryEvent { id: String, state: String, error: Option<String> }
+
+/// Transmits every message waiting in the local send queue.
+///
+/// The composer files a send locally first (`queue_email_send`), and then this
+/// command is what actually reaches the server. Keeping the two apart matters: a
+/// crash, a closed window or a dead network between them leaves a durable
+/// `send_smtp` item behind, so the message is retryable instead of lost, and the
+/// `completed` mark that delivery writes is what stops a message being sent
+/// twice. `ids` narrows the run to specific messages (the reading pane's Try
+/// again); `None` drains the whole queue, which is what the shell asks for on
+/// startup so a send stranded by a quit recovers on its own.
+///
+/// Runs on a worker thread for the same reason as `sync_mail`: an SMTP session
+/// is a network conversation held from the webview2 IPC callback, which would
+/// freeze the window. The database lock is taken only to snapshot the work and
+/// to write the outcomes — never across a session. Each outcome is streamed to
+/// the UI as a `mail-delivery-result` event.
+#[tauri::command]
+pub async fn deliver_queued_mail(ids: Option<Vec<String>>, app: tauri::AppHandle, state: State<'_, AppState>) -> Result<DeliveryReport, String> {
+  use tauri::Emitter;
+  // Snapshot the queue under one short lock: every message grouped with the
+  // account it leaves through. A message whose account row is gone is set aside
+  // and reported rather than dropped, so it cannot sit in the queue forever.
+  let (accounts, orphans): (Vec<(AccountConnection, Vec<OutboundMessage>)>, Vec<String>) = {
+    let database = repositories(&state)?;
+    let repos = Repositories::new(database.connection());
+    let sends = repos.queued_sends(ids.as_deref()).map_err(|_| "Unable to read the messages waiting to be sent.".to_string())?;
+    let mut accounts: Vec<(AccountConnection, Vec<OutboundMessage>)> = Vec::new();
+    let mut orphans: Vec<String> = Vec::new();
+    for send in sends {
+      match send.connection {
+        Some(connection) => match accounts.iter_mut().find(|(existing, _)| existing.id == connection.id) {
+          Some((_, messages)) => messages.push(send.message),
+          None => accounts.push((connection, vec![send.message])),
+        },
+        None => orphans.push(send.message.id),
+      }
+    }
+    (accounts, orphans)
+  };
+  let mut report = DeliveryReport::default();
+  for id in orphans {
+    let error = "The account this message was queued from is no longer signed in, so it could not be sent.".to_string();
+    if let Ok(database) = repositories(&state) {
+      let _ = Repositories::new(database.connection()).mark_delivery_failed(&id, &error);
+    }
+    let _ = app.emit("mail-delivery-result", DeliveryEvent { id: id.clone(), state: "failed".into(), error: Some(error.clone()) });
+    report.failed.push(DeliveryFailure { id, error });
+  }
+  // Credentials are resolved here, on the IPC thread: the keyring read and any
+  // OAuth refresh stay off the worker, which only receives the usable secret.
+  let mut prepared: Vec<(AccountConnection, Vec<OutboundMessage>, OwnedCredential)> = Vec::new();
+  for (connection, messages) in accounts {
+    match load_mail_credential(&connection) {
+      Ok(credential) => prepared.push((connection, messages, credential)),
+      Err(error) => {
+        if let Ok(database) = repositories(&state) {
+          let repos = Repositories::new(database.connection());
+          for message in &messages {
+            let _ = repos.mark_delivery_failed(&message.id, &error);
+          }
+        }
+        for message in messages {
+          let _ = app.emit("mail-delivery-result", DeliveryEvent { id: message.id.clone(), state: "failed".into(), error: Some(error.clone()) });
+          report.failed.push(DeliveryFailure { id: message.id, error: error.clone() });
+        }
+      }
+    }
+  }
+  if prepared.is_empty() {
+    return Ok(report);
+  }
+  deliver_and_record(prepared, &app, &state, &mut report).await?;
+  Ok(report)
+}
+
+/// Runs the SMTP session on a worker thread, then records each outcome.
+///
+/// Split from the command so the delivery is one auditable path: the worker
+/// performs network I/O only with the snapshots it was handed (no database, no
+/// keyring, no app handle), and every write happens back on the caller's thread
+/// under a short lock.
+async fn deliver_and_record(prepared: Vec<(AccountConnection, Vec<OutboundMessage>, OwnedCredential)>, app: &tauri::AppHandle, state: &State<'_, AppState>, report: &mut DeliveryReport) -> Result<(), String> {
+  use tauri::Emitter;
+  let (sender, receiver) = tokio::sync::oneshot::channel();
+  std::thread::Builder::new()
+    .name("relay-smtp-delivery".into())
+    .spawn(move || {
+      let outcome = guard::guarded(move || {
+        let mut results = Vec::new();
+        for (connection, messages, credential) in prepared {
+          let credential = match &credential {
+            OwnedCredential::Password(password) => MailCredential::Password(password),
+            OwnedCredential::AccessToken(token) => MailCredential::AccessToken(token),
+          };
+          results.extend(transport::deliver(&connection, credential, &messages));
+        }
+        Ok(results)
+      });
+      let _ = sender.send(outcome);
+    })
+    .map_err(|_| "The send could not be started.".to_string())?;
+  let outcomes = receiver.await.map_err(|_| "The send stopped unexpectedly.".to_string())??;
+  // Persist under a short, separate lock, then tell the UI.
+  let database = repositories(state)?;
+  let repos = Repositories::new(database.connection());
+  for (id, outcome) in outcomes {
+    match outcome {
+      transport::DeliveryOutcome::Sent => {
+        // A delivered message whose local mark fails would be retried on the
+        // next run, so the failure is worth a log line — but it is not a send
+        // failure, and the report must not claim otherwise.
+        if repos.mark_delivery_sent(&id).is_err() {
+          tracing::warn!(message = %id, "delivered message could not be marked sent locally");
+        }
+        let _ = app.emit("mail-delivery-result", DeliveryEvent { id: id.clone(), state: "sent".into(), error: None });
+        report.sent.push(id);
+      }
+      transport::DeliveryOutcome::Failed(error) => {
+        let _ = repos.mark_delivery_failed(&id, &error);
+        let _ = app.emit("mail-delivery-result", DeliveryEvent { id: id.clone(), state: "failed".into(), error: Some(error.clone()) });
+        report.failed.push(DeliveryFailure { id, error });
+      }
+    }
+  }
+  Ok(())
 }
 #[tauri::command]
 pub fn get_channels(state: State<'_, AppState>) -> Result<Vec<Channel>, String> { Repositories::new(repositories(&state)?.connection()).channels().map_err(|_| "Unable to load local channels".to_string()) }

@@ -17,7 +17,9 @@ const uid = () => (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID(
 
 interface PreviewEmail {
   id: string; accountId: string; direction: 'inbound' | 'outbound';
-  deliveryState: 'draft' | 'queued' | 'received' | 'sent';
+  deliveryState: 'draft' | 'queued' | 'failed' | 'received' | 'sent';
+  // Set when a delivery run records a failure; the reading pane shows it.
+  deliveryError?: string | null;
   folderRole: 'inbox' | 'sent' | 'drafts' | 'archive' | 'trash';
   senderName: string; senderEmail: string; subject: string; bodyText: string;
   threadId: string | null;
@@ -46,7 +48,10 @@ const emails: PreviewEmail[] = [
   { id: 'pv-inbox-3', accountId: 'pv-account', direction: 'inbound', deliveryState: 'received', folderRole: 'inbox', senderName: 'People Operations', senderEmail: 'people@northstar.test', subject: 'Open enrollment starts Monday', bodyText: 'Your benefits enrollment window opens next week. Here is what to know.', threadId: null, receivedAt: minsAgo(333), isRead: true, isStarred: false, to: [], cc: [], bcc: [] },
   { id: 'pv-inbox-4', accountId: 'pv-account', direction: 'inbound', deliveryState: 'received', folderRole: 'inbox', senderName: 'Priya Nair', senderEmail: 'priya@northstar.test', subject: 'Research partnership update', bodyText: 'The team at Solace confirmed a meeting for Thursday afternoon.', threadId: null, receivedAt: minsAgo(850), isRead: true, isStarred: false, to: [], cc: [], bcc: [] },
   { id: 'pv-draft-1', accountId: 'pv-account', direction: 'outbound', deliveryState: 'draft', folderRole: 'drafts', senderName: 'Preview Account', senderEmail: 'preview@relay.local', subject: 'Release notes draft', bodyText: 'Hi team,\n\nHere are the release notes for the next build.', threadId: null, receivedAt: minsAgo(12), isRead: true, isStarred: false, to: ['maya@northstar.test'], cc: [], bcc: [] },
-  { id: 'pv-sent-1', accountId: 'pv-account', direction: 'outbound', deliveryState: 'queued', folderRole: 'sent', senderName: 'Preview Account', senderEmail: 'preview@relay.local', subject: 'Re: Q3 planning: a few decisions to close', bodyText: 'Looks good to me. I will update the tracker today.', threadId: 'pv-thread-q3', receivedAt: minsAgo(360), isRead: true, isStarred: false, to: ['maya@northstar.test'], cc: [], bcc: [] },
+  // A sample already in Sent. It is `sent` (delivered) because sending exists
+  // now; a queued sample would be reported as failed by the preview's honest
+  // no-transport delivery the moment the workspace opens.
+  { id: 'pv-sent-1', accountId: 'pv-account', direction: 'outbound', deliveryState: 'sent', folderRole: 'sent', senderName: 'Preview Account', senderEmail: 'preview@relay.local', subject: 'Re: Q3 planning: a few decisions to close', bodyText: 'Looks good to me. I will update the tracker today.', threadId: 'pv-thread-q3', receivedAt: minsAgo(360), isRead: true, isStarred: false, to: ['maya@northstar.test'], cc: [], bcc: [] },
 ];
 
 interface PreviewChannel { id: string; title: string; slug: string; description: string; memberCount: number; }
@@ -97,7 +102,7 @@ function summaryFor(email: PreviewEmail): EmailSummary {
   return { id: email.id, senderName: display, subject: email.subject, preview: email.bodyText.slice(0, 120), receivedAt: email.receivedAt, isRead: email.isRead, isStarred: email.isStarred };
 }
 function detailFor(email: PreviewEmail): EmailDetail {
-  return { ...summaryFor(email), accountId: email.accountId, direction: email.direction, deliveryState: email.deliveryState, senderEmail: email.senderEmail, bodyText: email.bodyText, to: email.to, cc: email.cc, bcc: email.bcc };
+  return { ...summaryFor(email), accountId: email.accountId, direction: email.direction, deliveryState: email.deliveryState, senderEmail: email.senderEmail, bodyText: email.bodyText, to: email.to, cc: email.cc, bcc: email.bcc, deliveryError: email.deliveryError ?? null };
 }
 function mailList(role: string): EmailSummary[] {
   return emails
@@ -237,6 +242,21 @@ export async function previewInvoke<T>(command: string, args: Record<string, unk
       email.deliveryState = 'queued';
       email.folderRole = 'sent';
       return { id: email.id, deliveryState: 'queued', updatedAt: nowIso() } as T;
+    }
+    // Delivery needs a native SMTP session, which a browser preview cannot open,
+    // so this reports the honest reason and records it on the message — the same
+    // state the native path produces when no relay accepts the mail. A send is
+    // never reported as delivered (BUG-023).
+    case 'deliver_queued_mail': {
+      const ids = Array.isArray(arg('ids')) ? (arg('ids') as string[]) : null;
+      const targets = emails.filter(email => email.direction === 'outbound' && (email.deliveryState === 'queued' || email.deliveryState === 'failed') && (ids === null || ids.includes(email.id)));
+      const failed = targets.map(email => {
+        const error = 'Preview mode has no mail transport, so nothing was sent.';
+        email.deliveryState = 'failed';
+        email.deliveryError = error;
+        return { id: email.id, error };
+      });
+      return { sent: [], failed } as T;
     }
     case 'get_channels': return channels.map(channel => ({ id: channel.id, title: channel.title, slug: channel.slug, description: channel.description, memberCount: channel.memberCount })) as T;
     case 'get_conversations': return [...conversations].sort((a, b) => (b.lastActivityAt > a.lastActivityAt ? 1 : -1)) as T;

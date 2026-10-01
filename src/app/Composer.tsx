@@ -4,10 +4,11 @@ import { commandError, getAccounts, queueEmailSend, saveDraft, type Account, typ
 import { parseAddresses } from './util';
 import { type ComposeInitial } from './MailView';
 
-// Queueing is local-only: the outbound copy is filed into Sent with a durable
-// `send_smtp` item, and nothing leaves the machine until a transport exists.
-// `onQueued` lets the shell show the queued message rather than leaving the
-// composer over an unchanged list, which read as a failed send (BUG-023).
+// Sending is local-first and then real: the outbound copy is filed into Sent
+// with a durable `send_smtp` item, and the shell transmits that item over SMTP
+// (see App's `onQueued`). `onQueued` lets the shell show the message that was
+// sent rather than leaving the composer over an unchanged list, which read as a
+// failed send (BUG-023).
 export function Composer({ onClose, onQueued, initial }: { onClose: () => void; onQueued?: (id: string) => void; initial?: ComposeInitial }) {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [draftId, setDraftId] = useState<string | undefined>(initial?.draftId);
@@ -46,14 +47,14 @@ export function Composer({ onClose, onQueued, initial }: { onClose: () => void; 
 
   // `persist` is a no-op without an account, so pressing Send used to do nothing
   // and say nothing at all (BUG-023). On success the composer closes and the
-  // shell opens the queued message in Sent, where the delivery notice states
-  // plainly that it was not transmitted.
+  // shell opens the sent message in Sent, where the delivery notice reports the
+  // real outcome of the transmission.
   const send = async () => {
     if (!form.accountId) { setStatus('Choose the account to send from.'); return; }
     const id = await persist();
     if (!id) return;
     try { await queueEmailSend(id); onQueued?.(id); onClose(); }
-    catch (err) { setStatus(commandError(err, 'The message could not be queued for sending.')); }
+    catch (err) { setStatus(commandError(err, 'The message could not be sent.')); }
   };
 
   return <div className="composer-backdrop" role="presentation"><section className="composer" role="dialog" aria-modal="true" aria-label="Compose email" onKeyDown={event => {
@@ -73,7 +74,7 @@ export function Composer({ onClose, onQueued, initial }: { onClose: () => void; 
     </div>
     <textarea placeholder="Write your message…" defaultValue={form.bodyText} onInput={event => update('bodyText', event.currentTarget.value)} aria-label="Email message" />
     <footer>
-      <button className="send-button" onClick={() => void send()}><Send size={16} /> Queue send</button>
+      <button className="send-button" onClick={() => void send()}><Send size={16} /> Send</button>
       <button className="attach-button" disabled title="Attachment import arrives with secure file storage"><Paperclip size={17} /></button>
       <span>{status}<em className="shortcut-hint">Ctrl+Enter to send</em></span>
     </footer>

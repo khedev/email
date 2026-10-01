@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cleanAddressLabel, formatBytes, formatDate, initials, looksLikeGoogleMailbox, oauthClientIdIssue, oauthClientSecretIssue, parseAddresses, stripEmail } from './util';
+import { cleanAddressLabel, connectionView, formatBytes, formatDate, initials, looksLikeGoogleMailbox, oauthClientIdIssue, oauthClientSecretIssue, parseAddresses, stripEmail } from './util';
 
 describe('initials', () => {
   it('builds up-to-two-letter initials', () => {
@@ -99,5 +99,44 @@ describe('oauthClientSecretIssue', () => {
     expect(oauthClientSecretIssue('AIzaSyA1234567890abcdefghijklmnopqrstu')).toContain('API key');
     expect(oauthClientSecretIssue('short')).toContain('wrong length');
     expect(oauthClientSecretIssue('GOCSPX-secret with space')).toContain('whitespace');
+  });
+});
+
+// The connection indicator must tell the truth about two different facts:
+// whether the machine has a network, and whether a company transport exists. The
+// old one rendered "Offline" forever because it reported the second as the first
+// (BUG-015).
+describe('connectionView', () => {
+  const overview = (state: string, failed = 0) => ({ state, failed, detail: null });
+
+  it('reports a missing network as Offline, whatever the queue says', () => {
+    const view = connectionView({ online: false, busy: false, sync: overview('error', 3), health: null });
+    expect(view.label).toBe('Offline');
+    expect(view.tone).toBe('offline');
+    expect(view.hint).toContain('no network');
+  });
+
+  it('reports work in progress as Syncing, outranking a stale failure count', () => {
+    expect(connectionView({ online: true, busy: true, sync: overview('error', 2), health: null })).toMatchObject({ label: 'Syncing', tone: 'synchronizing' });
+    expect(connectionView({ online: true, busy: false, sync: overview('synchronizing'), health: null })).toMatchObject({ label: 'Syncing', tone: 'synchronizing' });
+  });
+
+  it('reports failed queue work as a sync error', () => {
+    expect(connectionView({ online: true, busy: false, sync: overview('online', 2), health: null })).toMatchObject({ label: 'Sync error', tone: 'error' });
+    expect(connectionView({ online: true, busy: false, sync: null, health: { state: 'error' } })).toMatchObject({ label: 'Sync error', tone: 'error' });
+  });
+
+  it('reports a quiet store as Connecting until the status has loaded', () => {
+    expect(connectionView({ online: true, busy: false, sync: null, health: null })).toMatchObject({ label: 'Connecting', tone: 'connecting' });
+  });
+
+  it('states a missing company transport as a configuration fact, not an outage', () => {
+    // This is exactly the case that used to render "Offline" with no network
+    // problem: the transport is disabled by design.
+    const view = connectionView({ online: true, busy: false, sync: overview('offline'), health: { state: 'online' } });
+    expect(view.label).toBe('Local only');
+    expect(view.tone).toBe('local');
+    expect(view.hint).toContain('No company-server transport');
+    expect(view.label).not.toContain('Offline');
   });
 });

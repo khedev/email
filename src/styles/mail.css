@@ -67,10 +67,14 @@
    whose body is still being downloaded, shows a note instead of leaving a blank
    column that reads as a rendering fault. */
 .email-body-note { color: var(--text-muted); font-size: 13px; font-style: italic; }
-/* A queued outbound message is a local record, not a delivered one; the reading
-   pane says so rather than letting "queued" read as "sent" (BUG-023). */
+/* The reader's honest delivery states. A queued message has not left the machine
+   yet, a failed one says why and offers a retry, and a delivered message carries
+   no note at all — so "queued" can never read as "sent" (BUG-023). */
 .email-delivery-note { color: var(--text-muted); font-size: 13px; line-height: 1.6; border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: var(--radius-sm); background: var(--surface-hover); padding: 10px 12px; margin: 0 0 16px; }
 .email-delivery-note strong { color: var(--text-primary); }
+.email-delivery-note .delivery-retry { margin-left: 10px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text-primary); border-radius: var(--radius-sm); padding: 4px 10px; font-size: 12px; cursor: pointer; }
+.email-delivery-note .delivery-retry:hover:enabled { background: var(--surface-active); }
+.email-delivery-note .delivery-retry:disabled { opacity: 0.6; cursor: default; }
 
 .reply-bar { border-top: 1px solid var(--border); padding-top: 16px; display: flex; gap: 8px; }
 .reply-bar button { border: 1px solid var(--border-strong); background: var(--surface); border-radius: var(--radius-sm); padding: 8px 12px; font-size: 12px; display: flex; align-items: center; gap: 6px; }

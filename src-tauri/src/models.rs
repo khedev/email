@@ -5,13 +5,34 @@ use serde::{Deserialize, Serialize};
 pub struct EmailSummary { pub id: String, pub sender_name: String, pub subject: String, pub preview: String, pub received_at: String, pub is_read: bool, pub is_starred: bool }
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct EmailDetail { pub id: String, pub account_id: String, pub direction: String, pub delivery_state: String, pub sender_name: String, pub sender_email: String, pub subject: String, pub body_text: String, pub received_at: String, pub is_read: bool, pub is_starred: bool, pub to: Vec<String>, pub cc: Vec<String>, pub bcc: Vec<String> }
+pub struct EmailDetail {
+  pub id: String, pub account_id: String, pub direction: String, pub delivery_state: String, pub sender_name: String, pub sender_email: String, pub subject: String, pub body_text: String, pub received_at: String, pub is_read: bool, pub is_starred: bool, pub to: Vec<String>, pub cc: Vec<String>, pub bcc: Vec<String>,
+  /// Why the last SMTP delivery attempt failed; `None` unless the message is
+  /// sitting in the `failed` state. This is the classifier's own fixed wording,
+  /// never raw server text, so it is safe to show in the reading pane.
+  pub delivery_error: Option<String>,
+}
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Account { pub id: String, pub display_name: String, pub email_address: String, pub status: String, pub connection_state: String, pub connection_error: Option<String>, pub last_verified_at: Option<String> }
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AccountConnection { pub id: String, pub email_address: String, pub imap_host: String, pub imap_port: u16, pub encryption: String, pub auth_kind: String }
+pub struct AccountConnection { pub id: String, pub email_address: String, pub imap_host: String, pub imap_port: u16, pub smtp_host: String, pub smtp_port: u16, pub encryption: String, pub auth_kind: String }
+/// One outbound message resolved into exactly what an SMTP delivery needs.
+///
+/// The store layer fills this in (`Repositories::queued_sends`), so the delivery
+/// module never touches SQLite and every field it sends is already local truth.
+#[derive(Debug, Clone)]
+pub struct OutboundMessage { pub id: String, pub from_name: String, pub from_address: String, pub to: Vec<String>, pub cc: Vec<String>, pub bcc: Vec<String>, pub subject: String, pub body_text: String }
+/// The outcome of one delivery run, reported to the UI so it can refresh the
+/// message it is showing. Per-message failures are data, not command errors:
+/// one rejected message must not hide the messages that were accepted.
+#[derive(Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeliveryReport { pub sent: Vec<String>, pub failed: Vec<DeliveryFailure> }
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeliveryFailure { pub id: String, pub error: String }
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateAccount { pub display_name: String, pub email_address: String, pub imap_host: String, pub imap_port: u16, pub smtp_host: String, pub smtp_port: u16, pub encryption: String, pub auth_kind: String }

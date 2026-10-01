@@ -19,6 +19,10 @@ impl Database {
     // flag, reactions, channel membership). Debug seeds create it; release
     // builds must too, or reactions and direct messages would fail.
     crate::repositories::Repositories::new(&connection).ensure_self_identity()?;
+    // No delivery session can be in flight at startup, so any `syncing` queue
+    // item is a claim the previous process abandoned (crash or kill): hand it
+    // back rather than letting the message wait out the stale window.
+    crate::repositories::Repositories::new(&connection).release_abandoned_delivery_claims()?;
     Ok(Self { connection, path })
   }
   pub fn schema_version(&self) -> Result<i64, AppError> { Ok(self.connection.query_row("PRAGMA user_version", [], |row| row.get(0))?) }

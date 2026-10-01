@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { previewInvoke } from './preview';
-import type { Account, ChatMessage, Draft, EmailDetail, EmailSummary, MessageReaction, ReactionSummary, SettingsEntry } from './tauri';
+import type { Account, ChatMessage, DeliveryReport, Draft, EmailDetail, EmailSummary, MessageReaction, ReactionSummary, SettingsEntry } from './tauri';
 
 // The browser preview backend has to mirror the native thread contract
 // (`thread_id` grouping, reactions on the thread root, delete cascade), or the
@@ -132,6 +132,22 @@ describe('preview local-only send', () => {
     const draft = await invoke<Draft>('save_draft', { input: { accountId: 'pv-account', to: [], cc: ['maya@northstar.test'], bcc: [], subject: 'Cc only', bodyText: 'Body' }, draftId: null });
     await expect(invoke('queue_email_send', { id: draft.id })).rejects.toThrow('Add at least one valid recipient before sending.');
     expect((await invoke<EmailSummary[]>('get_emails_in_folder', { role: 'drafts' })).some(row => row.id === draft.id)).toBe(true);
+  });
+
+  // Delivery needs a native SMTP session, which a browser preview cannot open.
+  // The command must therefore report the honest reason and record it on the
+  // message — never a delivery that did not happen (BUG-023).
+  it('reports a failed delivery instead of pretending the message was sent', async () => {
+    const draft = await invoke<Draft>('save_draft', { input: { accountId: 'pv-account', to: ['maya@northstar.test'], cc: [], bcc: [], subject: 'Preview delivery', bodyText: 'Body' }, draftId: null });
+    await invoke<Draft>('queue_email_send', { id: draft.id });
+    const report = await invoke<DeliveryReport>('deliver_queued_mail', { ids: [draft.id] });
+    expect(report.sent).toEqual([]);
+    expect(report.failed).toHaveLength(1);
+    expect(report.failed[0].id).toBe(draft.id);
+    expect(report.failed[0].error).toMatch(/no mail transport/i);
+    const detail = await invoke<EmailDetail | null>('get_email', { id: draft.id });
+    expect(detail?.deliveryState).toBe('failed');
+    expect(detail?.deliveryError).toMatch(/no mail transport/i);
   });
 });
 

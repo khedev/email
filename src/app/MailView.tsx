@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Archive, ArrowLeft, CornerDownLeft, Forward, Mail, MoreHorizontal, RefreshCw, Send, Star, Trash2 } from 'lucide-react';
-import { archiveEmail, commandError, fetchEmailBody, getEmail, getEmailThread, getEmailsInFolder, getStarred, markEmailRead, setEmailStar, syncMail, trashEmail, type EmailDetail, type EmailSummary, type MailRole } from '../platform/tauri';
+import { archiveEmail, commandError, deliverQueuedMail, fetchEmailBody, getEmail, getEmailThread, getEmailsInFolder, getStarred, markEmailRead, setEmailStar, syncMail, trashEmail, type EmailDetail, type EmailSummary, type MailRole } from '../platform/tauri';
 import { formatDate, initials } from './util';
 import { PaneSplitter } from './PaneSplitter';
 
@@ -28,6 +28,9 @@ export function MailView({ view, accountId, focusEmail, onCompose, listWidth, on
   const [detail, setDetail] = useState<EmailDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  // True while a failed send is being retried, so the note's button says so
+  // instead of accepting a second click.
+  const [sending, setSending] = useState(false);
   // Shown in the reading pane while a missing body is downloaded, or when it
   // turns out there is nothing to show.
   const [bodyNote, setBodyNote] = useState('');
@@ -36,6 +39,10 @@ export function MailView({ view, accountId, focusEmail, onCompose, listWidth, on
   const [actionsOpen, setActionsOpen] = useState(false);
   const readNotified = useRef(new Set<string>());
   const threadSeq = useRef(0);
+  // The delivery listener is attached once, so it reads the open message from a
+  // ref rather than closing over a stale selection.
+  const selectedRef = useRef<string | null>(null);
+  useEffect(() => { selectedRef.current = selectedId; }, [selectedId]);
   // One automatic fetch per mount, so folder browsing cannot repeat it.
   const autoSynced = useRef(false);
   // Messages whose body has already been requested this session. Without it a
@@ -56,6 +63,25 @@ export function MailView({ view, accountId, focusEmail, onCompose, listWidth, on
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     import('@tauri-apps/api/event').then(({ listen }) => listen<string>('mail-sync-progress', event => setSyncNote(event.payload)))
+      .then(stop => { unlisten = stop; })
+      .catch(() => undefined);
+    return () => { unlisten?.(); };
+  }, []);
+
+  // Live outcomes from the native send worker. A message opened from Sent starts
+  // as "Not delivered yet"; when its transmission finishes, the pane that is
+  // showing it must say so (delivered, or the reason it failed) without the user
+  // reloading. Only the open message is refreshed, so this cannot disturb any
+  // other part of the view. No-op in browser preview.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    import('@tauri-apps/api/event').then(({ listen }) => listen<{ id: string }>('mail-delivery-result', event => {
+      const open = selectedRef.current;
+      if (!open || open !== event.payload.id) return;
+      getEmail(open)
+        .then(email => setDetail(current => (email && current && current.id === email.id) ? email : current))
+        .catch(() => undefined);
+    }))
       .then(stop => { unlisten = stop; })
       .catch(() => undefined);
     return () => { unlisten?.(); };
@@ -186,6 +212,25 @@ const removeFromList = (id: string) => {
   const replyAll = () => { if (!detail) return; const recipients = [detail.senderEmail, ...detail.to].filter(Boolean); const subject = /^Re:/i.test(detail.subject) ? detail.subject : `Re: ${detail.subject}`; onCompose({ to: recipients, cc: detail.cc, bcc: [], subject, bodyText: '' }); };
   const forward = () => { if (!detail) return; onCompose({ to: [], cc: [], bcc: [], subject: /^Fwd:/i.test(detail.subject) ? detail.subject : `Fwd: ${detail.subject}`, bodyText: `---------- Forwarded message ----------\nFrom: ${detail.senderName} <${detail.senderEmail}>\nSubject: ${detail.subject}\n\n${detail.bodyText}\n` }); };
   const resumeDraft = () => { if (!detail) return; onCompose({ draftId: detail.id, to: detail.to, cc: detail.cc, bcc: detail.bcc, subject: detail.subject, bodyText: detail.bodyText }); };
+  // Retrying re-runs the durable queue item for this message. The pane is then
+  // refreshed from the store, so it lands on the real outcome whichever way the
+  // attempt went (the native send worker also emits the same refresh).
+  const retryDelivery = async () => {
+    if (!detail) return;
+    const id = detail.id;
+    setSending(true);
+    setActionError(null);
+    try {
+      await deliverQueuedMail([id]);
+      const refreshed = await getEmail(id);
+      if (refreshed) setDetail(current => (current && current.id === refreshed.id) ? refreshed : current);
+    } catch (err) {
+      console.error('[relay] resend failed:', id, err);
+      setActionError(commandError(err, 'The message could not be sent.'));
+    } finally {
+      setSending(false);
+    }
+  };
 
   const closeReading = () => { setSelectedId(null); setDetail(null); setThread([]); };
 
@@ -270,12 +315,21 @@ const removeFromList = (id: string) => {
             <time>{formatDate(detail.receivedAt)}</time>
           </div>
           {(detail.to.length > 0 || detail.cc.length > 0) && <div className="recipients"><span>To</span>{detail.to.map(address => <em key={address}>{address}</em>)}{detail.cc.length > 0 && <span>CC</span>}{detail.cc.map(address => <em key={address}>{address}</em>)}</div>}
-          {/* A queued outbound message is a local record, not a delivered one.
-              Saying so on the message itself is what distinguishes it from mail
-              that actually left the machine (BUG-023). */}
+          {/* Delivery state is stated on the message itself. Queued mail has not
+              left the machine yet; failed mail says why and offers a retry; a
+              message that was accepted by the relay carries no note. Keeping
+              those states distinguishable from delivered mail is what BUG-023
+              asked for — the transport now exists, so the states differ instead
+              of being merged into one blanket warning. */}
           {detail.direction === 'outbound' && detail.deliveryState === 'queued' && (
             <p className="email-delivery-note" role="status">
-              <strong>Not delivered yet.</strong> This message is saved in Sent on this computer. This build has no mail transport, so no copy has left the machine.
+              <strong>Not delivered yet.</strong> This message is saved in Sent on this computer and is being sent from here.
+            </p>
+          )}
+          {detail.direction === 'outbound' && detail.deliveryState === 'failed' && (
+            <p className="email-delivery-note" role="status">
+              <strong>Sending failed.</strong> {detail.deliveryError ?? 'The message could not be sent from this computer.'}
+              <button className="delivery-retry" disabled={sending} onClick={() => void retryDelivery()}>{sending ? 'Retrying…' : 'Try again'}</button>
             </p>
           )}
           {/* A message with no readable text part, or one whose body is still
