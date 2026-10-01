@@ -1,0 +1,3 @@
+// RT_MANIFEST (type 24), resource ID 1 (CREATEPROCESS_MANIFEST_RESOURCE_ID).
+// Compiled by build.rs with windres and linked into test targets only.
+1 24 "test-manifest.xml"

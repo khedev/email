@@ -1,0 +1,22 @@
+.composer-backdrop { position: fixed; inset: 0; z-index: 10; background: var(--backdrop); display: grid; place-items: center; }
+.composer { width: min(680px, calc(100vw - 32px)); background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); box-shadow: 0 24px 70px var(--shadow); overflow: hidden; }
+.composer header, .composer footer { display: flex; align-items: center; padding: 13px 16px; }
+.composer header { justify-content: space-between; border-bottom: 1px solid var(--border); font-size: 14px; }
+.composer header button, .attach-button { border: 0; background: transparent; padding: 5px; color: var(--text-secondary); }
+.composer-fields { padding: 0 16px; }
+.composer-fields input, .composer-fields select, .composer textarea { width: 100%; border: 0; border-bottom: 1px solid var(--border); padding: 11px 0; outline: 0; font-size: 13px; background: transparent; }
+.composer textarea { height: 230px; border: 0; padding: 17px 16px; resize: vertical; line-height: 1.6; background: transparent; color: var(--text-primary); }
+.composer footer { gap: 9px; border-top: 1px solid var(--border); }
+.send-button { background: var(--accent); color: var(--accent-on); border: 0; border-radius: var(--radius-sm); padding: 8px 12px; display: flex; gap: 7px; align-items: center; font-size: 12px; font-weight: 650; }
+.send-button:hover { background: var(--accent-strong); }
+.attach-button:disabled { opacity: 0.45; }
+.composer footer span { font-size: 11px; color: var(--text-muted); margin-left: auto; }
+.composer footer span em { margin-left: 8px; color: var(--accent-strong); }
+.draft-note { font-size: 11px; color: var(--accent-strong); padding: 6px 16px 2px; margin: 0; }
+.shortcut-hint { font-size: 11px; color: var(--text-secondary); }
+@media (max-width: 800px) {
+  .composer-backdrop { place-items: stretch; }
+  .composer { width: 100vw; height: 100vh; height: 100dvh; max-height: none; border: 0; border-radius: 0; display: flex; flex-direction: column; }
+  .composer-fields { flex: 0 0 auto; }
+  .composer textarea { flex: 1; height: auto; resize: none; }
+}

@@ -1,0 +1,10 @@
+.notification-panel { position: fixed; right: 18px; top: 57px; z-index: 11; width: 340px; max-height: 470px; overflow: auto; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 10px; box-shadow: 0 16px 44px var(--shadow); }
+.notification-panel header { padding: 13px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+.notification-panel header div { display: flex; align-items: center; gap: 7px; font-size: 13px; }
+.notification-panel header button, .close-notifications { background: transparent; border: 0; color: var(--accent-strong); font-size: 11px; display: flex; gap: 5px; align-items: center; }
+.notification-panel article { padding: 12px 14px; border-bottom: 1px solid var(--border); }
+.notification-panel article strong { font-size: 12px; }
+.notification-panel article p { font-size: 12px; line-height: 1.4; color: var(--text-secondary); margin: 4px 0; }
+.notification-panel article time { font-size: 10px; color: var(--text-muted); }
+.notification-empty { padding: 20px 14px; color: var(--text-muted); font-size: 12px; }
+.close-notifications { padding: 10px 14px; width: 100%; border-top: 1px solid var(--border); }

@@ -1,0 +1,60 @@
+[package]
+name = "relay"
+version = "0.1.0"
+description = "Local-first desktop communication client"
+edition = "2021"
+
+[lib]
+name = "relay_lib"
+# Unit tests live in `tests/local_store.rs` instead of inline `#[cfg(test)]`
+# modules: the lib unittest harness binary would link the same comctl32
+# v6-only imports as the app binary but receive no Common-Controls manifest,
+# so the loader refuses it before main() (see build.rs). The `tests/` target
+# IS patched with the manifest by build.rs. Disable the harness build here.
+test = false
+# NOTE: `cdylib` and `staticlib` are intentionally absent.
+# - `cdylib`: a Windows PE shared library can only export 65,535 symbols (PE
+#   ordinal limit); this crate graph needs ~104k, so a cdylib link fails on
+#   every Windows toolchain. It is also unnecessary for the desktop binary.
+# - `staticlib`: unused by the desktop target (the binary statically links the
+#   rlib through src/main.rs) and it triples build time. Restore both types
+#   only for mobile (iOS/Android) cross-builds.
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-window-state = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rusqlite = { version = "0.32", features = ["bundled", "uuid"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+imap = { version = "3.0.0-alpha.15", default-features = false, features = ["native-tls"] }
+# Google OAuth 2.0 (Gmail sign-in): blocking HTTPS for the token endpoints,
+# using the same native-tls backend as the imap crate; sha2 for PKCE S256.
+ureq = { version = "2.10", default-features = false, features = ["native-tls", "json"] }
+sha2 = "0.10"
+# Thunderbird-style discovery: DNS MX/SRV lookups for custom domains
+# (Google Workspace / Microsoft 365 detection). The resolver runs on a minimal
+# local tokio runtime because the async resolver needs an executor; `time` is
+# required because hickory wraps every query in tokio's `time::timeout` (see
+# `discover::resolver_runtime`), and `sync` for the sign-in offload channel.
+hickory-resolver = "0.24"
+hickory-proto = "0.24"
+tokio = { version = "1", features = ["rt", "net", "time", "sync"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+# Windows Credential Manager via the keyring crate (Phase 7 credential storage).
+keyring = { version = "3", features = ["windows-native"] }
+
+[target.'cfg(not(target_os = "windows"))'.dependencies]
+keyring = { version = "3", features = ["sync-secret-service"] }
+

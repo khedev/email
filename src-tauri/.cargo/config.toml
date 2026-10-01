@@ -1,0 +1,18 @@
+# Linker selection per host target.
+#
+# x86_64-pc-windows-gnu (the toolchain actually used on this machine):
+#   Uses the standard mingw-w64 driver (gcc -> GNU ld). rust-lld's GNU flavor
+#   was tried and REJECTED: it links the unit-test harness binary "successfully"
+#   but the loader refuses it with STATUS_ENTRYPOINT_NOT_FOUND (0xc0000139),
+#   even though its import table is a strict subset of the app binary's, whose
+#   imports all resolve. GNU ld links both the app and test binaries correctly
+#   now that the cdylib crate-type is gone (that was the original rust-lld
+#   motivation -- see Cargo.toml).
+#
+# x86_64-pc-windows-msvc (kept for future machines that install VS Build Tools):
+#   rust-lld is required because VS link.exe is not installed. Note that a full
+#   MSVC build additionally needs the Windows SDK import libraries (ws2_32.lib,
+#   dbghelp.lib, ...), which are absent on this machine -- so MSVC builds fail
+#   at link time until the SDK is installed.
+[target."x86_64-pc-windows-msvc"]
+linker = "rust-lld"

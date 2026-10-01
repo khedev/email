@@ -1,0 +1,63 @@
+.messenger-workspace { grid-column: 2/-1; grid-row: 2; display: grid; grid-template-columns: 220px minmax(0, 1fr); min-height: 0; }
+.channel-list { background: var(--surface-muted); border-right: 1px solid var(--border); padding: 17px 12px; }
+.channel { width: 100%; border: 0; background: transparent; border-radius: var(--radius-sm); padding: 8px; display: flex; align-items: center; gap: 7px; text-align: left; font-size: 13px; color: var(--text-secondary); }
+.channel:hover { background: var(--surface-hover); }
+.active-channel { background: var(--surface-active); color: var(--accent-strong); font-weight: 650; }
+.chat { display: grid; grid-template-rows: auto 1fr auto; min-height: 0; }
+.chat-heading { border-bottom: 1px solid var(--border); padding: 18px 24px; display: flex; justify-content: space-between; }
+.chat-heading h1 { display: flex; align-items: center; gap: 5px; font-size: 18px; margin: 0; }
+.chat-heading p, .chat-heading span { font-size: 12px; color: var(--text-secondary); margin: 5px 0 0; }
+.chat-heading span { display: flex; gap: 5px; align-items: center; }
+.chat-history { overflow: auto; padding: 24px; display: flex; flex-direction: column; gap: 20px; }
+.chat-message { display: flex; gap: 10px; max-width: 760px; }
+.chat-message.reply { padding-left: 22px; border-left: 2px solid var(--border); margin: 10px 0; background: var(--surface-muted); }
+.chat-avatar { width: 31px; height: 31px; border-radius: 50%; background: var(--accent-soft); color: var(--accent-strong); display: grid; place-items: center; flex: 0 0 31px; font-size: 10px; font-weight: 700; }
+.chat-message strong { font-size: 13px; }
+.chat-message time { font-size: 10px; color: var(--text-muted); margin-left: 8px; }
+.chat-message p { font-size: var(--font-size-base); line-height: 1.55; color: var(--text-secondary); margin: 4px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.thread-root { display: flex; flex-direction: column; gap: 4px; }
+.thread-panel { border-left: 3px solid var(--accent); padding-left: 16px; margin: 6px 0 2px; }
+.thread-panel .chat-message { margin-bottom: 12px; }
+.thread-root.thread-open > .chat-message { border-left: 2px solid var(--accent); padding-left: 10px; }
+.thread-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.thread-heading > span { display: flex; align-items: center; gap: 5px; font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
+.thread-reply { margin-bottom: 10px; }
+.thread-composer { display: flex; align-items: flex-end; gap: 6px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 6px; max-width: 620px; }
+.thread-composer textarea { border: 0; outline: 0; resize: none; min-height: 34px; flex: 1; font-size: 12px; background: transparent; color: var(--text-primary); }
+.thread-composer button { border: 0; border-radius: 6px; background: var(--accent); color: #fff; padding: 6px; display: grid; place-items: center; }
+.thread-composer button:disabled { background: var(--border-strong); color: var(--text-muted); }
+.message-tools { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.reaction-chips { display: contents; }
+.reaction-chips button, .react, .replies { border: 1px solid var(--border); background: var(--surface); border-radius: 10px; padding: 2px 8px; font-size: 11px; display: flex; gap: 4px; align-items: center; color: var(--text-secondary); }
+.reaction-chips button:hover, .react:hover, .replies:hover { background: var(--surface-hover); }
+.reaction-chips button.mine { border-color: var(--accent); color: var(--accent-strong); background: var(--accent-soft); }
+.replies { color: var(--accent-strong); border-color: var(--accent); }
+.replies.quiet { color: var(--text-secondary); border-color: var(--border); }
+.replies svg { flex: 0 0 auto; }
+.chat-composer { margin: 0 24px 12px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); display: flex; padding: 8px; }
+.chat-composer textarea { border: 0; outline: 0; resize: none; min-height: 42px; flex: 1; font-size: 13px; background: transparent; color: var(--text-primary); }
+.chat-composer button { align-self: flex-end; border: 0; border-radius: 6px; background: var(--accent); color: #fff; padding: 7px; display: grid; place-items: center; }
+.chat-composer button:disabled { background: var(--border-strong); color: var(--text-muted); }
+.quick-reactions { margin: 0; display: flex; gap: 4px; }
+.quick-reactions button { border: 0; background: transparent; font-size: 15px; line-height: 1; padding: 3px; border-radius: 6px; }
+.quick-reactions button:hover { background: var(--surface-hover); }
+.quick-reactions button:disabled { opacity: 0.35; }
+.quick-reactions button { border: 0; background: transparent; font-size: 15px; line-height: 1; padding: 3px; border-radius: 6px; }
+.quick-reactions button:hover { background: var(--surface-hover); }
+.quick-reactions button:disabled { opacity: 0.35; }
+@media (max-width: 800px) {
+  .messenger-workspace { grid-column: 1; grid-template-columns: 1fr; }
+  .channel-list { display: none; }
+}
+.channel-list .eyebrow { margin: 14px 4px 6px; }
+.channel-list .eyebrow:first-child { margin-top: 0; }
+.dm-avatar { width: 22px; height: 22px; border-radius: 50%; background: var(--accent-soft); color: var(--accent-strong); display: inline-grid; place-items: center; font-size: 9px; font-weight: 700; flex: 0 0 22px; }
+.dm-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pin-flag { display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--warning); margin: 0; }
+.inline-edit { display: flex; flex-direction: column; gap: 6px; max-width: 560px; }
+.inline-edit textarea { border: 1px solid var(--accent); border-radius: var(--radius-sm); background: var(--surface); color: var(--text-primary); padding: 8px 10px; font-size: 13px; min-height: 60px; resize: vertical; }
+.inline-edit > div { display: flex; gap: 6px; }
+.inline-edit > div button { border: 1px solid var(--border); background: var(--surface); border-radius: 8px; padding: 4px 10px; font-size: 11px; display: flex; gap: 4px; align-items: center; color: var(--text-secondary); }
+.inline-edit > div button:hover { background: var(--surface-hover); }
+.inline-edit > div button:disabled { opacity: 0.5; }
+.react.danger:hover { border-color: var(--danger); color: var(--danger); }

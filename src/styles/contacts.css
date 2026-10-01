@@ -1,0 +1,31 @@
+.contacts-workspace { grid-column: 2/-1; grid-row: 2; overflow: auto; background: var(--surface); padding: 22px 28px; }
+.contacts-toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 18px; }
+.contacts-toolbar h1 { font-size: 23px; letter-spacing: -0.6px; margin: 0; }
+.contact-search { display: flex; align-items: center; gap: 8px; border: 1px solid var(--border-input); border-radius: var(--radius-md); padding: 0 9px; height: 34px; background: var(--surface-muted); color: var(--text-secondary); min-width: 300px; }
+.contact-search input { flex: 1; border: 0; outline: 0; background: transparent; font-size: 13px; }
+.toggle-favorites, .add-contact { border: 1px solid var(--border-strong); background: var(--surface); border-radius: var(--radius-sm); padding: 7px 11px; font-size: 12px; display: flex; gap: 6px; align-items: center; color: var(--text-secondary); }
+.toggle-favorites:hover, .add-contact:hover { background: var(--surface-hover); }
+.toggle-favorites .starred, .add-contact .starred { fill: var(--star); color: var(--star); }
+.contact-form { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 14px 0; padding: 12px 16px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--surface-muted); }
+.contact-form strong { font-size: 13px; }
+.contact-fields { display: grid; grid-template-columns: repeat(2, minmax(180px, 1fr)); gap: 8px; }
+.contact-fields input, .contact-fields select, .account-form input, .account-form select { border: 1px solid var(--border-input); border-radius: var(--radius-sm); padding: 8px 10px; font-size: 12px; background: var(--surface); color: var(--text-primary); }
+.contact-save, .contact-cancel { border: 1px solid var(--accent); background: var(--surface); border-radius: var(--radius-sm); padding: 7px 11px; font-size: 12px; display: flex; gap: 6px; align-items: center; color: var(--accent-strong); }
+.contact-save { background: var(--accent); color: var(--accent-on); }
+.contact-save:hover { background: var(--accent-strong); }
+.contact-cancel:hover { background: var(--surface-hover); }
+.contacts-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
+.contact-card { display: flex; gap: 12px; align-items: center; padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); }
+.contact-card:hover { background: var(--surface-hover); }
+.contact-avatar { width: 42px; height: 42px; flex: 0 0 42px; border-radius: 50%; background: var(--accent-soft); color: var(--accent-strong); font-size: 13px; }
+.contact-copy { min-width: 0; flex: 1; }
+.contact-copy strong { font-size: 13px; }
+.contact-copy p { font-size: 11px; color: var(--text-secondary); margin: 2px 0 0; }
+.contact-copy p em { color: var(--text-muted); margin-left: 6px; }
+.contact-copy span { font-size: 11px; color: var(--text-muted); display: block; }
+.contact-actions { display: flex; gap: 2px; }
+.contact-actions button { border: 0; background: transparent; border-radius: var(--radius-sm); padding: 6px; display: grid; place-items: center; color: var(--text-secondary); }
+.contact-actions button:hover { background: var(--surface-hover); }
+.contact-actions button:disabled { opacity: 0.4; }
+.contact-actions .starred { fill: var(--star); color: var(--star); }
+@media (max-width: 800px) { .contacts-workspace { grid-column: 1; } }
