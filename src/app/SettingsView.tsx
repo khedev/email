@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Bell, Database, KeyRound, MonitorCog, Moon, RefreshCw, RotateCcw, Sun, Trash2, UserRound, Wifi } from 'lucide-react';
+import { Bell, Database, HardDrive, KeyRound, MonitorCog, Moon, RefreshCw, RotateCcw, Sun, Trash2, UserRound, Wifi } from 'lucide-react';
 import {
   addEmailAccount, clearCache, commandError, getAccounts, getAppSettings, getNotificationPreferences, getPresence, getStorageUsage, getSyncOverview,
   removeAccount, retryFailedSync, setAppSetting, setPresenceStatus, testEmailConnection, updateNotificationPreference,
@@ -192,7 +192,7 @@ export function SettingsView({ onPreferenceChange, onAccountsChanged }: { onPref
       </div>
     </Card>
 
-    <Card icon={Wifi} title="Storage">
+    <Card icon={HardDrive} title="Storage">
       {usage ? <div className="usage-grid">
         <span>Database <em>{formatBytes(usage.database)}</em></span>
         <span>Attachments <em>{formatBytes(usage.attachments)}</em></span>

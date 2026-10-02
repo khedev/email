@@ -1,56 +1,331 @@
-/* First-run email sign-in (LoginView) and the pre-load boot card. */
-.login-screen { grid-column: 1/-1; grid-row: 2; display: grid; place-items: center; padding: 24px; background: var(--surface-muted); }
-.login-screen.boot { min-height: 60vh; }
-.login-card { width: min(430px, 100%); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-md, 0 12px 32px color-mix(in srgb, #000 18%, transparent)); padding: 26px 28px; display: flex; flex-direction: column; gap: 16px; }
-.login-header { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 6px; }
-.login-mark { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent-strong); }
-.login-header h1 { font-size: 19px; margin: 4px 0 0; letter-spacing: -0.4px; }
-.login-header p { font-size: 12px; color: var(--text-muted); margin: 0; }
-.login-providers { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
-.login-providers button { border: 1px solid var(--border-strong); background: var(--surface-muted); color: var(--text-secondary); border-radius: 999px; padding: 6px 12px; font-size: 11.5px; }
+/* First-run email sign-in (LoginView) and the pre-load boot card.
+
+   Bento composition: a decorative brand column beside the login card, so the
+   sign-in controls are never pushed around by decoration. Every colour comes
+   from the existing theme tokens, so light and dark both work without a second
+   theme system. */
+
+/* ── Screen ─────────────────────────────────────────────────────────────── */
+.login-screen {
+  grid-column: 1/-1;
+  grid-row: 2;
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: clamp(16px, 3vw, 44px);
+  background:
+    radial-gradient(circle at 10% 4%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 42%),
+    radial-gradient(circle at 92% 96%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 44%),
+    var(--background);
+}
+
+/* ── Bento grid ─────────────────────────────────────────────────────────── */
+.bento {
+  width: min(1060px, 100%);
+  display: grid;
+  gap: 16px;
+  align-items: stretch;
+  grid-template-columns: minmax(0, 1.04fr) minmax(0, 0.96fr);
+}
+/* Liquid glass, same recipe as the workspace surfaces in app.css: translucent
+   fill clipped to the padding box, an angled specular clipped to the border box,
+   and the top/bottom rim highlights. */
+.bento-card,
+.login-screen.boot .login-card {
+  border: 1px solid transparent;
+  border-radius: 24px;
+  background:
+    linear-gradient(color-mix(in srgb, var(--surface) var(--glass-strength), transparent), color-mix(in srgb, var(--surface) var(--glass-strength), transparent)) padding-box,
+    linear-gradient(140deg, var(--glass-spec) 0%, transparent 32%, transparent 62%, var(--glass-spec-soft) 100%) border-box;
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.55) brightness(1.03);
+  box-shadow:
+    inset 0 1px 1px var(--glass-spec),
+    inset 0 -1px 1px var(--glass-spec-soft),
+    0 1px 2px color-mix(in srgb, var(--shadow) 28%, transparent),
+    0 28px 64px -34px color-mix(in srgb, var(--shadow) 100%, transparent);
+}
+.bento-card {
+  position: relative;
+  animation: login-rise 280ms cubic-bezier(0.22, 0.8, 0.3, 1) both;
+}
+.bento-brand { animation-delay: 40ms; }
+.login-card { animation-delay: 100ms; }
+@keyframes login-rise {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ── Brand card ─────────────────────────────────────────────────────────── */
+.bento-brand { overflow: hidden; padding: clamp(24px, 2.6vw, 34px); display: flex; flex-direction: column; gap: 24px; }
+/* The light inside the brand card: a slow, transform-only drift so the glass
+   reads as liquid rather than static. */
+.brand-orb {
+  position: absolute;
+  right: -70px;
+  top: -80px;
+  width: 250px;
+  height: 250px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 32% 32%, color-mix(in srgb, var(--accent) 38%, transparent), transparent 62%);
+  filter: blur(10px);
+  pointer-events: none;
+  animation: orb-drift 18s ease-in-out infinite alternate;
+}
+@keyframes orb-drift {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to { transform: translate3d(-26px, 22px, 0) scale(1.12); }
+}
+.brand-topline { position: relative; display: flex; align-items: center; gap: 10px; }
+.login-mark {
+  width: 40px;
+  height: 40px;
+  border-radius: 13px;
+  display: grid;
+  place-items: center;
+  background: var(--accent);
+  color: var(--accent-on);
+  box-shadow: 0 10px 22px -12px color-mix(in srgb, var(--accent) 80%, transparent);
+}
+.brand-wordmark { font-size: 20px; font-weight: 720; letter-spacing: -0.6px; }
+.brand-copy { position: relative; }
+.brand-copy h2 { margin: 0 0 10px; font-size: clamp(26px, 3vw, 34px); line-height: 1.12; letter-spacing: -1px; }
+.brand-copy p { margin: 0; max-width: 42ch; font-size: 14.5px; line-height: 1.6; color: var(--text-secondary); }
+.bento-features { position: relative; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: auto; }
+.feature-card {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 13px 14px;
+  background: color-mix(in srgb, var(--surface-hover) 66%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.feature-icon { width: 30px; height: 30px; border-radius: 10px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent-strong); margin-bottom: 5px; }
+.feature-card strong { font-size: 13px; font-weight: 650; }
+.feature-card p { margin: 0; font-size: 12px; line-height: 1.5; color: var(--text-secondary); }
+/* ── Login card ─────────────────────────────────────────────────────────── */
+.login-card { width: 100%; padding: clamp(24px, 2.6vw, 34px); display: flex; flex-direction: column; gap: 16px; }
+.login-header { display: flex; flex-direction: column; gap: 5px; }
+.login-header h1 { margin: 0; font-size: 27px; letter-spacing: -0.8px; }
+.login-header p { margin: 0; font-size: 13.5px; color: var(--text-secondary); }
+.login-primary { display: flex; flex-direction: column; gap: 12px; }
+
+/* ── Inputs ─────────────────────────────────────────────────────────────── */
+.login-field { display: flex; flex-direction: column; gap: 6px; }
+.login-field > label { font-size: 12.5px; font-weight: 600; color: var(--text-secondary); }
+.field-shell {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 46px;
+  padding: 0 13px;
+  border: 1px solid var(--border-input);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 65%, transparent);
+  color: var(--text-muted);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+.field-shell:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+.field-shell input { flex: 1; min-width: 0; height: 100%; border: 0; background: transparent; outline: none; font-size: 13.5px; color: var(--text-primary); }
+.password-row { display: flex; gap: 8px; align-items: stretch; }
+.password-row input {
+  flex: 1;
+  min-width: 0;
+  height: 46px;
+  padding: 0 13px;
+  border: 1px solid var(--border-input);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 65%, transparent);
+  font-size: 13.5px;
+  color: var(--text-primary);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.password-row input:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+.password-row .icon-button {
+  width: 46px;
+  border: 1px solid var(--border-input);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 65%, transparent);
+  color: var(--text-muted);
+  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+.password-row .icon-button:hover { color: var(--text-secondary); background: var(--surface-hover); border-color: var(--border-strong); }
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+.login-submit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  width: 100%;
+  height: 48px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 13px;
+  font-size: 14px;
+  font-weight: 600;
+  background: var(--accent);
+  color: var(--accent-on);
+  box-shadow: 0 14px 28px -16px color-mix(in srgb, var(--accent) 90%, transparent);
+  transition: transform 0.15s ease, filter 0.15s ease, box-shadow 0.15s ease;
+}
+.login-submit:hover:not(:disabled) { filter: brightness(1.07); transform: translateY(-1px); box-shadow: 0 18px 32px -16px color-mix(in srgb, var(--accent) 95%, transparent); }
+.login-submit:active:not(:disabled) { transform: translateY(0) scale(0.995); }
+.login-submit:disabled { opacity: 0.7; cursor: progress; }
+/* Google keeps its own brand rules: a neutral surface, a hairline border and the
+   multi-colour G to the left of the label. */
+.login-google { background: var(--surface); color: var(--text-primary); border: 1px solid var(--border-strong); box-shadow: 0 1px 2px color-mix(in srgb, var(--shadow) 26%, transparent); }
+.login-google:hover:not(:disabled) { background: var(--surface-hover); filter: none; border-color: var(--text-muted); }
+.login-google .google-mark { flex: none; }
+.login-divider { display: flex; align-items: center; gap: 12px; font-size: 11.5px; color: var(--text-muted); }
+.login-divider::before, .login-divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+.login-advanced { align-self: flex-start; border: 0; background: transparent; color: var(--accent); font-size: 12.5px; font-weight: 600; padding: 2px 0; text-align: left; }
+.login-advanced:hover:not(:disabled) { text-decoration: underline; text-underline-offset: 3px; }
+.login-advanced:disabled { opacity: 0.65; }
+
+/* ── Progress and error states ──────────────────────────────────────────── */
+.login-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.login-progress .spin { flex: none; color: var(--accent); }
+.login-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 14px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+}
+.login-error > svg { flex: none; margin-top: 1px; }
+/* ── Collapsible setup panels ───────────────────────────────────────────── */
+.login-more { border: 1px solid var(--border); border-radius: 16px; padding: 2px 14px 14px; background: color-mix(in srgb, var(--surface-muted) 72%, transparent); }
+.login-more summary { display: flex; align-items: center; gap: 8px; padding: 11px 0; font-size: 12.5px; font-weight: 600; color: var(--text-secondary); cursor: pointer; list-style: none; }
+.login-more summary::-webkit-details-marker { display: none; }
+.login-more summary::after {
+  content: '';
+  width: 7px;
+  height: 7px;
+  margin-left: auto;
+  border-right: 1.6px solid var(--text-muted);
+  border-bottom: 1.6px solid var(--text-muted);
+  transform: rotate(45deg);
+  transition: transform 0.18s ease;
+}
+.login-more[open] summary { margin-bottom: 8px; }
+.login-more[open] summary::after { transform: rotate(-135deg); }
+.login-more summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 3px; border-radius: 6px; }
+.login-more .login-submit { margin-top: 12px; }
+.login-providers { display: flex; flex-wrap: wrap; gap: 7px; }
+.login-providers button {
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text-secondary);
+  border-radius: 999px;
+  padding: 6px 13px;
+  font-size: 11.5px;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
 .login-providers button:hover { background: var(--surface-hover); }
 .login-providers button.active { border-color: var(--accent); color: var(--accent-strong); background: var(--accent-soft); font-weight: 600; }
+.login-hint { margin: 8px 0 0; padding: 10px 12px; border-radius: 12px; font-size: 11px; line-height: 1.55; color: var(--text-secondary); background: color-mix(in srgb, var(--surface-hover) 70%, transparent); border: 1px solid var(--border); }
 .login-fields { display: flex; flex-direction: column; gap: 9px; }
-.login-fields input, .login-server input, .login-server select { width: 100%; border: 1px solid var(--border-input); border-radius: var(--radius-sm); padding: 9px 11px; font-size: 13px; background: var(--surface); color: var(--text-primary); }
-.login-fields input:focus-visible, .login-server input:focus-visible, .login-server select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.password-row { display: flex; gap: 6px; align-items: stretch; }
-.password-row input { flex: 1; }
-.password-row .icon-button { border: 1px solid var(--border-input); background: var(--surface-muted); border-radius: var(--radius-sm); width: 38px; display: grid; place-items: center; color: var(--text-secondary); }
-.login-advanced { align-self: flex-start; border: 0; background: transparent; color: var(--accent); font-size: 12px; padding: 2px 0; text-align: left; }
-.login-server { display: grid; grid-template-columns: 1fr 90px; gap: 8px; padding: 10px; border: 1px dashed var(--border-strong); border-radius: var(--radius-md); background: var(--surface-muted); }
-.login-error { margin: 0; padding: 9px 12px; border-radius: var(--radius-sm); font-size: 12px; color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, var(--surface)); border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent); }
-.login-submit { display: flex; gap: 8px; align-items: center; justify-content: center; border: 0; border-radius: var(--radius-sm); padding: 11px 14px; font-size: 13.5px; font-weight: 600; background: var(--accent); color: var(--accent-contrast, #fff); }
-.login-submit:hover { filter: brightness(1.06); }
-.login-submit:disabled { opacity: 0.7; }
-.login-foot { display: flex; flex-direction: column; gap: 8px; align-items: center; }
-.login-foot > span { display: flex; gap: 6px; align-items: center; font-size: 11px; color: var(--text-muted); text-align: center; }
-.login-skip { border: 0; background: transparent; color: var(--text-secondary); font-size: 12px; text-decoration: underline; text-underline-offset: 3px; }
-.login-skip:hover { color: var(--accent); }
-.login-hint { font-size: 11px; line-height: 1.55; color: var(--text-secondary); background: var(--surface-hover); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 9px 11px; margin: -4px 0 0; text-align: left; }
-.login-primary { display: flex; flex-direction: column; gap: 10px; }
-.login-primary input { height: 36px; padding: 0 11px; border: 1px solid var(--border-input); border-radius: var(--radius-sm); background: var(--surface); font-size: 13px; }
-.login-progress { font-size: 11px; color: var(--text-secondary); background: var(--surface-hover); border-radius: var(--radius-sm); padding: 7px 10px; margin: 0; }
-.login-more { border: 1px solid var(--border); border-radius: var(--radius-md); padding: 4px 12px 12px; background: var(--surface-muted); }
-.login-more summary { font-size: 12px; font-weight: 650; color: var(--text-secondary); padding: 8px 2px; cursor: pointer; }
-.login-more[open] summary { margin-bottom: 6px; }
-.login-more .login-submit { margin-top: 10px; }
-.login-oauth { border: 1px solid var(--border); border-radius: var(--radius-md); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; background: var(--surface-muted); }
-.login-oauth strong { font-size: 12px; }
-.login-oauth p { font-size: 11px; line-height: 1.5; color: var(--text-muted); margin: 0; }
+.login-fields input, .login-server input, .login-server select {
+  width: 100%;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--border-input);
+  border-radius: 11px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font-size: 12.5px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.login-fields input:focus-visible, .login-server input:focus-visible, .login-server select:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+.login-server { display: grid; grid-template-columns: 1fr 96px; gap: 8px; padding: 12px; border: 1px dashed var(--border-strong); border-radius: 14px; background: color-mix(in srgb, var(--surface-hover) 55%, transparent); }
+
+/* ── Google OAuth client panel ──────────────────────────────────────────── */
+.login-oauth { display: flex; flex-direction: column; gap: 9px; padding: 13px 14px; border: 1px solid var(--border); border-radius: 14px; background: color-mix(in srgb, var(--surface-hover) 55%, transparent); }
+.login-oauth strong { font-size: 12.5px; }
+.login-oauth p { margin: 0; font-size: 11.5px; line-height: 1.55; color: var(--text-secondary); }
 .oauth-row { display: flex; gap: 8px; }
-.oauth-row input { flex: 1; min-width: 0; height: 34px; padding: 0 10px; border: 1px solid var(--border-input); border-radius: var(--radius-sm); background: var(--surface); font-size: 12px; }
-.oauth-button { border: 1px solid var(--accent); color: var(--accent-strong); background: var(--surface); border-radius: var(--radius-sm); padding: 0 12px; font-size: 12px; white-space: nowrap; }
+.oauth-row input, .oauth-secret-row input { flex: 1; min-width: 0; height: 40px; padding: 0 12px; border: 1px solid var(--border-input); border-radius: 11px; background: var(--surface); font-size: 12.5px; }
+.oauth-secret-row { display: flex; gap: 8px; align-items: stretch; }
+.oauth-secret-row .icon-button { border: 1px solid var(--border-input); border-radius: 11px; color: var(--text-muted); }
+.oauth-button { border: 1px solid var(--accent); color: var(--accent-strong); background: var(--surface); border-radius: 11px; padding: 0 14px; font-size: 12.5px; font-weight: 600; white-space: nowrap; transition: background 0.15s ease; }
 .oauth-button:hover:not(:disabled) { background: var(--accent-soft); }
-.oauth-button:disabled { opacity: 0.6; }
-/* Guidance shown when the typed address is a Google consumer mailbox, where an
-   IMAP password sign-in can never succeed. */
-.login-google-guidance { margin: 0; padding: 9px 11px; font-size: 11px; line-height: 1.55; color: var(--text-secondary); background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); border-radius: var(--radius-sm); }
-.login-google-guidance strong { color: var(--accent-strong); }
-/* Client-id / secret validation, shown under the OAuth fields. */
-.login-oauth p.oauth-issue { font-size: 11px; line-height: 1.5; color: var(--danger); margin: 0; }
-.login-oauth p.oauth-notice { font-size: 11px; line-height: 1.5; color: var(--text-secondary); margin: 0; }
-.login-oauth .oauth-steps { font-size: 11px; line-height: 1.55; color: var(--text-muted); margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; }
-.oauth-secret-row { display: flex; gap: 6px; align-items: stretch; }
-.oauth-secret-row input { flex: 1; min-width: 0; }
+.oauth-button:disabled { opacity: 0.6; cursor: not-allowed; }
+.login-oauth p.oauth-issue { color: var(--danger); }
+.login-oauth p.oauth-notice { color: var(--text-secondary); }
+.login-oauth .oauth-steps { display: flex; flex-direction: column; gap: 4px; margin: 0; padding-left: 18px; font-size: 11.5px; line-height: 1.55; color: var(--text-secondary); }
 .oauth-forget { align-self: flex-start; border: 0; background: transparent; color: var(--text-secondary); font-size: 11.5px; padding: 2px 0; text-decoration: underline; text-underline-offset: 3px; }
 .oauth-forget:hover { color: var(--accent); }
+/* ── Guidance and footer ────────────────────────────────────────────────── */
+.login-google-guidance {
+  margin: 0;
+  padding: 11px 13px;
+  border-radius: 14px;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent) 26%, transparent);
+}
+.login-google-guidance strong { color: var(--accent-strong); }
+/* Left-aligned like every other element in the card (header, labels, buttons,
+   panels); a centred footer read as a different layout entirely. */
+.login-foot { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.login-foot > span { display: flex; align-items: flex-start; gap: 7px; font-size: 12px; color: var(--text-secondary); text-align: left; }
+.login-foot > span svg { flex: none; margin-top: 2px; color: var(--success); }
+.login-skip { border: 0; background: transparent; color: var(--text-secondary); font-size: 12px; text-decoration: underline; text-underline-offset: 3px; }
+.login-skip:hover { color: var(--accent); }
+
+/* ── Pre-load boot card (App.tsx reuses .login-card) ────────────────────── */
+.login-screen.boot { min-height: 100vh; }
+.login-screen.boot .login-card { width: min(380px, 100%); align-items: center; justify-content: center; gap: 16px; text-align: center; animation: none; }
+.login-screen.boot .login-card::before {
+  content: '';
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2.5px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  border-top-color: var(--accent);
+  animation: login-spin 0.9s linear infinite;
+}
+@keyframes login-spin { to { transform: rotate(360deg); } }
+
+/* ── Responsive: decoration never crowds out the form ───────────────────── */
+@media (max-width: 1023px) {
+  .bento { grid-template-columns: 1fr; }
+  .bento-brand { gap: 18px; }
+  .bento-features { margin-top: 4px; }
+}
+@media (max-width: 720px) {
+  .bento-features { grid-template-columns: 1fr; }
+  .brand-copy h2 { font-size: 25px; }
+  .login-header h1 { font-size: 24px; }
+  .login-card { padding: 22px 18px; }
+  .login-server { grid-template-columns: 1fr; }
+  .oauth-secret-row, .oauth-row { flex-direction: column; }
+  .oauth-button { height: 40px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bento-card, .login-screen.boot .login-card::before { animation: none; }
+  .login-submit:hover:not(:disabled) { transform: none; }
+  .login-more summary::after { transition: none; }
+  /* The drifting light inside the brand card is ambient motion; it stops. */
+  .brand-orb { animation: none; }
+}

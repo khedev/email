@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, AtSign, Bell, ChevronDown, CircleHelp, Command, FileText, Inbox, Menu, MessageSquareText, PanelLeftClose, Plus, Search, Send, Settings, Star, Trash2, Users, X } from 'lucide-react';
+import { Archive, AtSign, Bell, ChevronDown, CircleHelp, Command, FileText, Inbox, Menu, MessageSquareText, PanelLeftClose, PanelLeftOpen, PenLine, Search, Send, Settings, Star, Trash2, Users, X } from 'lucide-react';
 import { commandError, getAppHealth, getAppSettings, getAccounts, getPresence, getSyncOverview, getUnreadNotificationCount, isNative, deliverQueuedMail, openDirectMessage as openDirectMessageWith, setAppSetting, setPresenceStatus, syncMail, type Account, type AppHealth, type DensityPreference, type PresenceStatus, type SyncOverview, type ThemePreference } from '../platform/tauri';
 import { PaneSplitter } from './PaneSplitter';
 import { Composer } from './Composer';
@@ -299,7 +299,10 @@ export function App() {
     </header>
     {(workspaceOpen || presenceOpen) && <button className="menu-backdrop" aria-label="Close menu" onClick={() => { setWorkspaceOpen(false); setPresenceOpen(false); }} />}
     <aside className={`sidebar${navOpen ? ' open' : ''}`}>
-      <div className="compose-row"><button className="compose" onClick={() => openCompose()}><Plus size={18} /><span>Compose</span></button><button className="collapse" aria-label="Collapse navigation" onClick={() => setCollapsed(open => !open)}><PanelLeftClose size={16} /></button></div>
+      {/* The control stays reachable in both states: it is the only way back out
+          of the collapsed rail, where the splitter is hidden. Its label and glyph
+          follow the state so it never announces "Collapse" while expanding. */}
+      <div className="compose-row"><button className="compose" onClick={() => openCompose()}><PenLine size={18} /><span>Compose</span></button><button className="collapse" aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'} aria-expanded={!collapsed} onClick={() => setCollapsed(open => !open)}>{collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}</button></div>
       <NavSection title="MAIL" items={MAIL_VIEWS} active={isMail ? mailView : null} onSelect={label => navigate(label)} />
       <NavSection title="MESSENGER" items={MESSENGER_VIEWS} active={view} onSelect={label => navigate(label === 'Threads' || label === 'Channels' ? 'Messages' : label)} />
       <NavSection title="COMPANY" items={[{ label: 'Contacts', icon: Users }]} active={view} onSelect={label => navigate(label)} />

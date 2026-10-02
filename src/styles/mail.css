@@ -1,15 +1,21 @@
-.mail-workspace { position: relative; grid-column: 2/-1; grid-row: 2; display: grid; grid-template-columns: var(--mail-list-width, 380px) minmax(430px, 1fr); grid-template-rows: minmax(0, 1fr); min-height: 0; }
-.mail-splitter { left: calc(var(--mail-list-width, 380px) - 3px); }
-.list-pane { display: flex; flex-direction: column; min-height: 0; overflow: hidden; border-right: 1px solid var(--border); background: var(--surface); }
-.pane-heading { height: 86px; display: flex; align-items: end; justify-content: space-between; padding: 0 20px 18px; }
-.pane-heading .eyebrow { margin: 0 0 5px; }
+/* The shell's padding and column gap already inset this area, so the split
+   between the two panes is the only gap needed here. */
+.mail-workspace { position: relative; grid-column: 2/-1; grid-row: 2; display: grid; grid-template-columns: var(--mail-list-width, 380px) minmax(430px, 1fr); grid-template-rows: minmax(0, 1fr); gap: var(--bento-gap, 14px); min-height: 0; }
+/* Divider centred in the gap between the two cards. */
+.mail-splitter { left: calc(var(--mail-list-width, 380px) + var(--bento-gap, 14px) / 2); }
+/* Card surface, rim and blur come from the liquid glass recipe in app.css. */
+.list-pane { display: flex; flex-direction: column; min-height: 0; overflow: hidden; border-radius: var(--radius-xl); }
+.pane-heading { min-height: 86px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 20px; }
 .pane-heading h1 { font-size: 23px; letter-spacing: -0.6px; margin: 0; }
-.list-tools { height: 35px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; padding: 0 20px; color: var(--text-muted); font-size: 11px; }
-.list-tools span { display: flex; gap: 6px; align-items: center; }
-.filter { font-size: 12px; color: var(--text-secondary); }
+/* The count reads as the list's subtitle under its title. It used to sit in a
+   bordered tools strip, which put a hairline between the heading and the first
+   row and repeated the heading's own alignment. */
+.pane-count { font-size: 12px; color: var(--text-muted); margin: 4px 0 0; }
 
 .email-list { flex: 1 1 auto; min-height: 0; overflow: auto; -webkit-overflow-scrolling: touch; }
-.email-row { width: 100%; display: flex; gap: 10px; border: 0; border-bottom: 1px solid var(--border); padding: 13px 15px 12px 19px; background: var(--surface); text-align: left; cursor: pointer; }
+/* Rows are separated by spacing and their hover/selected state, not by a hairline:
+   a rule under every message made a 200-row folder read as a ruled table. */
+.email-row { width: 100%; display: flex; gap: 10px; border: 0; padding: 15px 15px 14px 19px; background: transparent; text-align: left; cursor: pointer; transition: background 0.15s ease; }
 .email-row:hover { background: var(--surface-hover); }
 .email-row.selected { background: var(--surface-active); box-shadow: inset 3px 0 var(--accent); }
 .mail-avatar { width: 31px; height: 31px; flex: 0 0 31px; color: #24304b; background: #e9eeff; font-size: 10px; }
@@ -28,7 +34,7 @@
 .email-row .starred, .starred { fill: var(--star); color: var(--star); }
 
 .skeleton-list { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 10px 18px; }
-.skeleton-row { display: flex; gap: 12px; padding: 13px 6px 14px; border-bottom: 1px solid var(--border); }
+.skeleton-row { display: flex; gap: 12px; padding: 15px 6px 16px; }
 .skeleton-copy { flex: 1; display: flex; flex-direction: column; gap: 7px; }
 .skeleton { border-radius: 5px; }
 .skeleton-circle { width: 31px; height: 31px; border-radius: 50%; }
@@ -38,9 +44,16 @@
 .skeleton { background: linear-gradient(100deg, var(--surface-hover) 40%, var(--surface-active) 50%, var(--surface-hover) 60%); background-size: 200% 100%; animation: shimmer 1.1s linear infinite; }
 @keyframes shimmer { to { background-position: -200% 0; } }
 
-.reading-pane { overflow: auto; background: var(--surface); }
-.message-actions { height: 52px; display: flex; justify-content: flex-end; gap: 4px; border-bottom: 1px solid var(--border); padding: 9px 18px; }
-.email-thread { margin: 10px auto 0; max-width: 720px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-muted); }
+.reading-pane { overflow: auto; border-radius: var(--radius-xl); }
+/* The breadcrumb and the actions share one row, as in the reference layout, so
+   the reader no longer opens with a full-width rule above its own title. */
+.reader-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.message-actions { display: flex; align-items: center; justify-content: flex-end; gap: 4px; flex-wrap: wrap; }
+.message-actions .icon-button { border: 1px solid var(--border); background: color-mix(in srgb, var(--surface) 58%, transparent); }
+.message-actions .icon-button:hover { border-color: var(--border-strong); }
+/* The thread block stays near-opaque: it is the one surface where body text
+   needs a calm, non-translucent ground to read against the glass around it. */
+.email-thread { margin: 14px auto 0; max-width: 720px; border: 1px solid color-mix(in srgb, var(--glass-spec) 26%, transparent); border-radius: var(--radius-lg); background: color-mix(in srgb, var(--surface-muted) 82%, transparent); }
 .thread-toggle { width: 100%; border: 0; background: transparent; padding: 8px 14px; font-size: 12px; font-weight: 650; color: var(--accent-strong); text-align: left; display: flex; justify-content: space-between; }
 .thread-toggle:hover { background: var(--surface-hover); }
 .thread-list { display: flex; flex-direction: column; }
@@ -54,15 +67,18 @@
 .message-content { max-width: 720px; margin: 0 auto; padding: 30px 58px 10px; }
 .message-label { font-size: 10px; letter-spacing: 0.08em; color: var(--accent); font-weight: 700; }
 .message-label span { color: var(--text-muted); margin: 0 5px; }
-.message-content h2 { font-size: 26px; letter-spacing: -0.6px; line-height: 1.25; margin: 10px 0 24px; }
+.message-content h2 { font-size: 26px; letter-spacing: -0.6px; line-height: 1.25; margin: 14px 0 20px; }
 .sender { display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--border); padding-bottom: 18px; }
 .sender strong { font-size: 13px; }
 .sender p { font-size: 11px; color: var(--text-secondary); margin: 2px 0 0; }
 .sender time { font-size: 11px; color: var(--text-muted); margin-left: auto; }
 .recipients { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; margin: 8px 0 12px; font-size: 11px; color: var(--text-muted); }
 .recipients em { background: var(--surface-hover); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 10px; padding: 2px 8px; white-space: nowrap; }
-.email-body { font-size: calc(var(--font-size-base) + 1px); line-height: 1.75; color: var(--text-secondary); padding: 18px 0; }
+/* The body is its own bounded surface. It is the one place in the reader where
+   long-form text needs a calm, near-opaque ground to read against the glass. */
+.email-body { font-size: calc(var(--font-size-base) + 1px); line-height: 1.75; color: var(--text-secondary); border: 1px solid var(--border); border-radius: var(--radius-lg); background: color-mix(in srgb, var(--surface) 82%, transparent); padding: 22px 26px; margin: 18px 0 4px; }
 .email-body p { margin: 0 0 19px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.email-body p:last-child { margin-bottom: 0; }
 /* The reader's honest empty state: a message with no readable text part, or one
    whose body is still being downloaded, shows a note instead of leaving a blank
    column that reads as a rendering fault. */
@@ -76,31 +92,53 @@
 .email-delivery-note .delivery-retry:hover:enabled { background: var(--surface-active); }
 .email-delivery-note .delivery-retry:disabled { opacity: 0.6; cursor: default; }
 
-.reply-bar { border-top: 1px solid var(--border); padding-top: 16px; display: flex; gap: 8px; }
-.reply-bar button { border: 1px solid var(--border-strong); background: var(--surface); border-radius: var(--radius-sm); padding: 8px 12px; font-size: 12px; display: flex; align-items: center; gap: 6px; }
-.reply-bar button:hover { background: var(--surface-hover); }
-.reply-bar button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-on); }
+.reply-bar { border-top: 1px solid var(--border); padding-top: 16px; display: flex; flex-wrap: wrap; gap: 8px; }
+.reply-bar button { border: 1px solid var(--border-strong); background: var(--surface); border-radius: var(--radius-md); padding: 9px 13px; font-size: 12px; display: flex; align-items: center; gap: 6px; transition: background 0.15s ease, transform 0.15s ease; }
+.reply-bar button:hover { background: var(--surface-hover); transform: translateY(-1px); }
+.reply-bar button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-on); box-shadow: 0 10px 20px -12px color-mix(in srgb, var(--accent) 85%, transparent); }
+.reply-bar button.primary:hover { background: var(--accent-strong); }
 .empty-detail { padding: 70px 24px; text-align: center; color: var(--text-muted); }
 .empty { padding: 80px 24px; text-align: center; color: var(--text-muted); }
 .empty svg, .empty-detail svg { color: var(--accent); }
 .empty h2, .empty-detail h2 { font-size: 17px; color: var(--text-primary); }
 .empty p { font-size: 13px; }
-.empty-action { margin-top: 14px; border: 1px solid var(--accent); color: var(--accent-strong); background: transparent; border-radius: var(--radius-sm); padding: 8px 12px; font-size: 12px; display: flex; align-items: center; gap: 6px; }
-.empty-action:hover { background: var(--surface-active); }
+.empty-action { margin-top: 14px; border: 1px solid var(--accent); color: var(--accent-strong); background: transparent; border-radius: var(--radius-md); padding: 9px 14px; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 6px; transition: background 0.15s ease, transform 0.15s ease; }
+.empty-action:hover { background: var(--surface-active); transform: translateY(-1px); }
 
 .actions-anchor { position: relative; display: grid; }
-.actions-menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 10; min-width: 160px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); box-shadow: 0 10px 28px var(--shadow); padding: 4px; display: flex; flex-direction: column; }
-.actions-menu button { border: 0; background: transparent; text-align: left; font-size: 12px; color: var(--text-primary); padding: 8px 10px; border-radius: 5px; }
+/* The actions menu shares the liquid glass recipe and the same 160ms pop as the
+   other overlays. */
+.actions-menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 10; min-width: 168px; border-radius: var(--radius-lg); padding: 5px; display: flex; flex-direction: column; animation: pop-in 0.16s cubic-bezier(0.22, 0.8, 0.3, 1) both; }
+.actions-menu button { border: 0; background: transparent; text-align: left; font-size: 12px; color: var(--text-primary); padding: 9px 11px; border-radius: var(--radius-sm); transition: background 0.15s ease; }
 .actions-menu button:hover { background: var(--surface-hover); }
 
+@media (max-width: 1120px) {
+  /* The mail workspace inherits the shell's second and third columns, but its
+     own two tracks asked for 380px + 430px + a gap = 824px. In a 1050px window
+     the workspace is only about 770px wide, so the reading pane was pushed past
+     the edge and clipped. Capping the list at a share of the workspace keeps
+     both panes on screen at any width; above this breakpoint the list returns
+     to its own draggable pixel width. */
+  .mail-workspace { grid-template-columns: min(var(--mail-list-width, 380px), 40%) minmax(300px, 1fr); }
+  /* With the list capped by a percentage there is no single pixel value for
+     the divider to sit in, and dragging toward an already-capped edge would
+     feel stuck. This mirrors the sidebar, which also drops its splitter here. */
+  .mail-splitter { display: none; }
+  /* At 190px of sidebar and a capped list the heading can be narrower than its
+     own title plus Sync button; let the button drop to a second row. */
+  .pane-heading { flex-wrap: wrap; }
+}
 @media (max-width: 800px) {
-  .mail-workspace { grid-column: 1; grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr); }
-  .list-pane { border: 0; }
+  .mail-workspace { grid-column: 1; grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr); gap: 0; }
   .mail-workspace.show-detail .list-pane { display: none; }
   .mail-workspace.show-detail .reading-pane { display: block; }
-  .pane-heading { height: 76px; padding: 0 14px 14px; }
-  .list-tools { padding: 0 14px; }
-  .message-actions { justify-content: flex-start; padding: 9px 10px; }
+  .pane-heading { min-height: 74px; padding: 12px 14px; }
+  .mail-sync-note { margin: 0 14px 12px; }
+  /* Narrow: the breadcrumb and the actions each take their own line, so the
+     back control keeps the left edge instead of sitting beside the crumb. */
+  .reader-top { flex-direction: column; align-items: stretch; gap: 8px; }
+  .message-actions { justify-content: flex-start; }
   .back-to-list { margin-right: auto; }
   .message-content { padding: 22px 18px 10px; }
+  .email-body { padding: 16px 14px; }
 }

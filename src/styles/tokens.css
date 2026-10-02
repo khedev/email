@@ -32,9 +32,20 @@
   --avatar-bold: #18284c;
   --code-bg: #f3f5f9;
 
-  --radius-sm: 7px;
-  --radius-md: 9px;
-  --radius-lg: 12px;
+  /* Liquid glass. `strength` is the translucency of the bento surfaces, `spec`
+     the rim specular that gives the edges their refraction, `blur` the backdrop
+     blur. Dark mode keeps a higher strength so body text stays readable. */
+  --glass-strength: 58%;
+  --glass-spec: rgba(255, 255, 255, 0.72);
+  --glass-spec-soft: rgba(255, 255, 255, 0.34);
+  --glass-blur: 18px;
+
+  /* Radius scale. `xl` is the bento card radius used by the shell surfaces and
+     the sign-in screen; the smaller steps stay for controls and rows. */
+  --radius-sm: 9px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --radius-xl: 24px;
   --font-size-base: 13px;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
 }
@@ -68,6 +79,11 @@
   --statusbar-bg: #1e222b;
   --avatar-bold: #2c3754;
   --code-bg: #232836;
+
+  --glass-strength: 66%;
+  --glass-spec: rgba(255, 255, 255, 0.26);
+  --glass-spec-soft: rgba(255, 255, 255, 0.12);
+  --glass-blur: 18px;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -100,6 +116,11 @@
     --statusbar-bg: #1e222b;
     --avatar-bold: #2c3754;
     --code-bg: #232836;
+
+    --glass-strength: 66%;
+    --glass-spec: rgba(255, 255, 255, 0.26);
+    --glass-spec-soft: rgba(255, 255, 255, 0.12);
+    --glass-blur: 18px;
   }
 }
 

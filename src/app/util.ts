@@ -1,3 +1,13 @@
+/**
+ * The one width at which the shell stops being a three-column desktop layout
+ * and becomes a phone layout (drawer nav, list/detail swap, fullscreen
+ * composer). Mail and Messenger both read it from JS to swap panes, so it is
+ * declared once here: a second, hand-written copy of the query in either
+ * component could drift from this one and from the `@media` rules without any
+ * error until the panes stopped swapping.
+ */
+export const NARROW_QUERY = '(max-width: 800px)';
+
 /** What the connection indicator needs to say, and how it should look.
  *
  *  Connectivity ("does this computer have a network?") and configuration ("is a
@@ -53,6 +63,24 @@ export function formatDate(value: string): string {
   if (sameDay) return formatTime(value);
   if (sameWeek) return new Intl.DateTimeFormat(undefined, { weekday: 'short' }).format(date);
   return new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: date.getFullYear() === today.getFullYear() ? undefined : 'numeric' }).format(date);
+}
+
+/**
+ * The reader needs the full stamp, not the list's shorthand: `formatDate`
+ * collapses today's mail to a bare clock time and this week's to a weekday, so
+ * a message opened on its own had no way to say which day it arrived.
+ */
+export function formatDateTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.valueOf())) return value;
+  return new Intl.DateTimeFormat(undefined, {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    year: date.getFullYear() === new Date().getFullYear() ? undefined : 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(date);
 }
 
 export function formatBytes(bytes: number): string {

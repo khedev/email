@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Archive, ArrowLeft, CornerDownLeft, Forward, Mail, MoreHorizontal, RefreshCw, Send, Star, Trash2 } from 'lucide-react';
 import { archiveEmail, commandError, deliverQueuedMail, fetchEmailBody, getEmail, getEmailThread, getEmailsInFolder, getStarred, markEmailRead, setEmailStar, syncMail, trashEmail, type EmailDetail, type EmailSummary, type MailRole } from '../platform/tauri';
-import { formatDate, initials } from './util';
+import { formatDate, formatDateTime, initials, NARROW_QUERY } from './util';
 import { PaneSplitter } from './PaneSplitter';
 
 export type AppView = 'Inbox' | 'Starred' | 'Sent' | 'Drafts' | 'Archive' | 'Trash' | 'Messages' | 'Threads' | 'Channels' | 'Contacts' | 'Directory' | 'Settings';
@@ -51,9 +51,9 @@ export function MailView({ view, accountId, focusEmail, onCompose, listWidth, on
   const bodyRequested = useRef(new Set<string>());
   // Narrow windows switch the workspace to a master-detail flow: the list and
   // the reading pane share one column and swap on selection (see mail.css).
-  const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 800px)').matches);
+  const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && window.matchMedia(NARROW_QUERY).matches);
   useEffect(() => {
-    const query = window.matchMedia('(max-width: 800px)');
+    const query = window.matchMedia(NARROW_QUERY);
     const onChange = (event: MediaQueryListEvent) => setNarrow(event.matches);
     query.addEventListener('change', onChange);
     return () => query.removeEventListener('change', onChange);
@@ -236,16 +236,14 @@ const removeFromList = (id: string) => {
 
   return <section className={`mail-workspace${narrow && selectedId ? ' show-detail' : ''}`} style={{ '--mail-list-width': `${listWidth}px` } as React.CSSProperties}>
     <div className="list-pane">
-      <div className="pane-heading"><div><p className="eyebrow">MAIL</p><h1>{view}</h1></div>
+      <div className="pane-heading"><div><h1>{view}</h1><p className="pane-count">{items.length} items</p></div>
         <div className="pane-heading-actions">
-          <span className="filter">{items.length} conversations</span>
           <button className="mail-sync" disabled={!accountId || syncing} title={accountId ? 'Download new mail from the server' : 'Sign in an account to fetch mail'} onClick={() => void runSync()} aria-label="Sync mail">
             <RefreshCw size={15} className={syncing ? 'spin' : ''} /> {syncing ? 'Syncing…' : 'Sync'}
           </button>
         </div>
       </div>
       {(syncNote || syncing) && <p className="mail-sync-note" aria-live="polite">{syncNote || 'Fetching mail from the server…'}</p>}
-      <div className="list-tools"><span>{items.length} items</span></div>
       {loading ? <SkeletonRows count={7} /> : <div className="email-list">
         {loadError && <p className="load-error">{loadError}</p>}
         {items.map((email, index) => (
@@ -286,33 +284,37 @@ const removeFromList = (id: string) => {
           </div>
         )}
         <div className="message-content">
-          <div className="message-actions">
-            <button className="icon-button mobile-only back-to-list" aria-label="Back to the message list" onClick={closeReading}><ArrowLeft size={18} /></button>
-            {detail.direction === 'inbound' && <button className="icon-button" aria-label="Archive" title="Archive (E)" onClick={archive}><Archive size={18} /></button>}
-            <button className="icon-button" aria-label="Move to trash" title="Move to trash" onClick={trash}><Trash2 size={18} /></button>
-            <button className="icon-button" aria-label={detail.isStarred ? 'Remove star' : 'Star'} onClick={() => void toggleStar(detail.id)}><Star size={18} className={detail.isStarred ? 'starred' : ''} /></button>
-            <div className="actions-anchor">
-              <button className="icon-button" aria-label="More actions" aria-haspopup="menu" aria-expanded={actionsOpen} onClick={() => setActionsOpen(open => !open)}><MoreHorizontal size={18} /></button>
-              {actionsOpen && <div className="actions-menu" role="menu">
-                <button role="menuitem" onClick={() => {
-                  setActionsOpen(false);
-                  if (!detail) return;
-                  // Forget the auto-read guard so reopening the email marks it read again.
-                  readNotified.current.delete(detail.id);
-                  markEmailRead(detail.id, false).then(() => {
-                    setDetail(current => current ? { ...current, isRead: false } : current);
-                    setItems(rows => rows.map(row => row.id === detail.id ? { ...row, isRead: false } : row));
-                  }).catch(err => { console.error('[relay] mark unread failed:', detail.id, err); setActionError('This email could not be marked unread.'); });
-                }}>Mark as unread</button>
-              </div>}
+          <div className="reader-top">
+            <div className="message-label">MAIL <span>·</span> {detail.direction === 'outbound' ? 'OUTBOX' : 'INBOX'} <span>·</span> LOCAL</div>
+            <div className="message-actions">
+              <button className="icon-button mobile-only back-to-list" aria-label="Back to the message list" onClick={closeReading}><ArrowLeft size={18} /></button>
+              {detail.direction === 'inbound' && <button className="icon-button" aria-label="Reply" title="Reply (R)" onClick={reply}><CornerDownLeft size={18} /></button>}
+              {detail.direction === 'inbound' && <button className="icon-button" aria-label="Forward" title="Forward (F)" onClick={forward}><Forward size={18} /></button>}
+              {detail.direction === 'inbound' && <button className="icon-button" aria-label="Archive" title="Archive (E)" onClick={archive}><Archive size={18} /></button>}
+              <button className="icon-button" aria-label="Move to trash" title="Move to trash" onClick={trash}><Trash2 size={18} /></button>
+              <button className="icon-button" aria-label={detail.isStarred ? 'Remove star' : 'Star'} onClick={() => void toggleStar(detail.id)}><Star size={18} className={detail.isStarred ? 'starred' : ''} /></button>
+              <div className="actions-anchor">
+                <button className="icon-button" aria-label="More actions" aria-haspopup="menu" aria-expanded={actionsOpen} onClick={() => setActionsOpen(open => !open)}><MoreHorizontal size={18} /></button>
+                {actionsOpen && <div className="actions-menu" role="menu">
+                  <button role="menuitem" onClick={() => {
+                    setActionsOpen(false);
+                    if (!detail) return;
+                    // Forget the auto-read guard so reopening the email marks it read again.
+                    readNotified.current.delete(detail.id);
+                    markEmailRead(detail.id, false).then(() => {
+                      setDetail(current => current ? { ...current, isRead: false } : current);
+                      setItems(rows => rows.map(row => row.id === detail.id ? { ...row, isRead: false } : row));
+                    }).catch(err => { console.error('[relay] mark unread failed:', detail.id, err); setActionError('This email could not be marked unread.'); });
+                  }}>Mark as unread</button>
+                </div>}
+              </div>
             </div>
           </div>
-          <div className="message-label">MAIL <span>·</span> {detail.direction === 'outbound' ? 'OUTBOX' : 'INBOX'} <span>·</span> LOCAL</div>
           <h2>{detail.subject}</h2>
           <div className="sender">
             <span className="mail-avatar">{initials(detail.senderName)}</span>
             <div><strong>{detail.senderName}</strong><p>{detail.senderEmail}</p></div>
-            <time>{formatDate(detail.receivedAt)}</time>
+            <time dateTime={detail.receivedAt} title={formatDateTime(detail.receivedAt)}>{formatDateTime(detail.receivedAt)}</time>
           </div>
           {(detail.to.length > 0 || detail.cc.length > 0) && <div className="recipients"><span>To</span>{detail.to.map(address => <em key={address}>{address}</em>)}{detail.cc.length > 0 && <span>CC</span>}{detail.cc.map(address => <em key={address}>{address}</em>)}</div>}
           {/* Delivery state is stated on the message itself. Queued mail has not

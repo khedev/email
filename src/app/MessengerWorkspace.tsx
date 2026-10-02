@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, Copy, Hash, MessageCircleReply, MessageSquare, Pencil, Pin, PinOff, SendHorizontal, Trash2, Users, X } from 'lucide-react';
+import { ArrowLeft, Check, Copy, Hash, MessageCircleReply, MessageSquare, Pencil, Pin, PinOff, SendHorizontal, Trash2, Users, X } from 'lucide-react';
 import { deleteMessage, editMessage, getChannelMessages, getChannels, getConversations, getMessageThread, sendCompanyMessage, setMessagePin, toggleMessageReaction, type Channel, type ChatMessage, type Conversation, type ReactionSummary } from '../platform/tauri';
-import { formatTime, initials } from './util';
+import { NARROW_QUERY, formatTime, initials } from './util';
 
 const QUICK_REACTIONS = ['👍', '❤️', '🎉', '👀', '🙏'];
 
@@ -35,17 +35,30 @@ export function MessengerWorkspace({ focusChannel, focusConversation, initialErr
   const [error, setError] = useState(initialError ?? '');
   const historyRef = useRef<HTMLDivElement | null>(null);
   const loadedRef = useRef(false);
+  // Phone layout: the conversation list and the chat take turns instead of
+  // sharing a row, so picking one has to swap the pane and a back control has to
+  // bring the list back (mail.css does the same; see NARROW_QUERY).
+  const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && window.matchMedia(NARROW_QUERY).matches);
+  const [showChat, setShowChat] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia(NARROW_QUERY);
+    const onChange = (event: MediaQueryListEvent) => setNarrow(event.matches);
+    query.addEventListener('change', onChange);
+    return () => query.removeEventListener('change', onChange);
+  }, []);
 
   useEffect(() => {
     getChannels().then(result => {
       setChannels(result);
       const preferred = focusChannel && result.some(channel => channel.id === focusChannel) ? focusChannel : undefined;
-      if (preferred) setActive(preferred);
+      if (preferred) { setActive(preferred); setShowChat(true); }
     }).catch(err => { console.error('[relay] load channels failed:', err); setError('Unable to load local channels.'); });
     getConversations().then(result => {
       setConversations(result);
       const dm = focusConversation && result.some(item => item.id === focusConversation) ? focusConversation : undefined;
-      if (dm) setActive(dm); else setActive(current => current ?? result[0]?.id);
+      // Arriving at a specific conversation (from Contacts) has to reveal the chat
+      // on a phone, or the target of the navigation is the one thing not shown.
+      if (dm) { setActive(dm); setShowChat(true); } else setActive(current => current ?? result[0]?.id);
     }).catch(err => { console.error('[relay] load conversations failed:', err); });
   }, [focusChannel, focusConversation]);
 
@@ -165,20 +178,21 @@ export function MessengerWorkspace({ focusChannel, focusConversation, initialErr
     } catch (err) { console.error('[relay] reply send failed:', root, err); setError('Reply could not be saved locally.'); }
   };
 
-  return <section className="messenger-workspace"><aside className="channel-list">
+  return <section className={`messenger-workspace${narrow && showChat ? ' show-chat' : ''}`}><aside className="channel-list">
     <p className="eyebrow">DIRECT MESSAGES</p>
     {directChats.map(item => (
-      <button key={item.id} className={item.id === active ? 'channel active-channel' : 'channel'} onClick={() => setActive(item.id)} title={item.kind === 'dm' ? 'Direct message' : 'Conversation'}>
+      <button key={item.id} className={item.id === active ? 'channel active-channel' : 'channel'} onClick={() => { setActive(item.id); setShowChat(true); }} title={item.kind === 'dm' ? 'Direct message' : 'Conversation'}>
         <span className="dm-avatar">{initials(item.title)}</span><span className="dm-name">{item.title}</span>
       </button>
     ))}
     {directChats.length === 0 && <p className="muted">No direct messages yet — start one from Contacts.</p>}
     <p className="eyebrow">CHANNELS</p>
-    {channels.map(item => <button key={item.id} className={item.id === active ? 'channel active-channel' : 'channel'} onClick={() => setActive(item.id)}><Hash size={16} /><span>{item.slug ?? item.title}</span></button>)}
+    {channels.map(item => <button key={item.id} className={item.id === active ? 'channel active-channel' : 'channel'} onClick={() => { setActive(item.id); setShowChat(true); }}><Hash size={16} /><span>{item.slug ?? item.title}</span></button>)}
     {channels.length === 0 && <p className="muted">No local channels yet.</p>}
   </aside>
   <article className="chat">
     <header className="chat-heading">
+      <button className="icon-button mobile-only chat-back" aria-label="Back to conversations" onClick={() => setShowChat(false)}><ArrowLeft size={18} /></button>
       <div>{isDirect ? <h1>{conversation?.title ?? 'Direct message'}</h1> : <h1><Hash size={20} />{channel?.slug ?? 'Messages'}</h1>}<p>{isDirect ? 'Direct message · private conversation' : channel?.description ?? 'Local company conversation'}</p></div>
       {!isDirect && <span><Users size={16} />{channel?.memberCount ?? 0}</span>}
     </header>

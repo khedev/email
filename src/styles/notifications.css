@@ -1,4 +1,6 @@
-.notification-panel { position: fixed; right: 18px; top: 57px; z-index: 11; width: 340px; max-height: 470px; overflow: auto; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 10px; box-shadow: 0 16px 44px var(--shadow); }
+/* `top` clears the floating top bar (shell padding 14px + its 64px height);
+   the old 57px offset put the panel underneath it. Glass from the recipe. */
+.notification-panel { position: fixed; right: 26px; top: 92px; z-index: 11; width: 340px; max-height: 470px; overflow: auto; border-radius: var(--radius-xl); animation: pop-in 0.18s cubic-bezier(0.22, 0.8, 0.3, 1) both; }
 .notification-panel header { padding: 13px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
 .notification-panel header div { display: flex; align-items: center; gap: 7px; font-size: 13px; }
 .notification-panel header button, .close-notifications { background: transparent; border: 0; color: var(--accent-strong); font-size: 11px; display: flex; gap: 5px; align-items: center; }
@@ -8,3 +10,9 @@
 .notification-panel article time { font-size: 10px; color: var(--text-muted); }
 .notification-empty { padding: 20px 14px; color: var(--text-muted); font-size: 12px; }
 .close-notifications { padding: 10px 14px; width: 100%; border-top: 1px solid var(--border); }
+@media (max-width: 800px) {
+  /* Anchored for the 64px desktop top bar and the shell's 14px padding; the
+     phone bar is 58px tall with no padding, and `340px + 26px` overruns a
+     360px window. */
+  .notification-panel { right: 12px; top: 66px; width: min(340px, calc(100vw - 24px)); }
+}

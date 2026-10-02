@@ -1,49 +1,64 @@
-.settings-workspace { grid-column: 2/-1; grid-row: 2; overflow: auto; background: var(--surface); padding: 22px 28px; }
+/* The workspace itself is the glass card (recipe in app.css); these cards are
+   a second, recessed glass layer inside it. */
+.settings-workspace { grid-column: 2/-1; grid-row: 2; overflow: auto; padding: 24px 26px; border-radius: var(--radius-xl); }
 .settings-header { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
 .settings-header h1 { font-size: 23px; letter-spacing: -0.6px; margin: 0; }
-.settings-refresh { border: 1px solid var(--border-strong); background: var(--surface); border-radius: var(--radius-sm); padding: 7px 11px; font-size: 12px; display: flex; gap: 6px; align-items: center; color: var(--text-secondary); margin-left: auto; }
-.settings-refresh:hover { background: var(--surface-hover); }
-.settings-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px 20px; margin-bottom: 16px; }
+.settings-refresh { border: 1px solid var(--border-strong); background: var(--surface); border-radius: var(--radius-md); padding: 8px 13px; font-size: 12px; display: flex; gap: 6px; align-items: center; color: var(--text-secondary); margin-left: auto; transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease; }
+.settings-refresh:hover { background: var(--surface-hover); color: var(--accent-strong); border-color: var(--accent); }
+.settings-card { background: color-mix(in srgb, var(--surface) 38%, transparent); border: 1px solid color-mix(in srgb, var(--glass-spec) 30%, transparent); border-radius: var(--radius-lg); padding: 18px 20px; margin-bottom: 16px; }
 .settings-card header { display: flex; align-items: center; gap: 8px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
 .settings-card header svg { color: var(--accent); }
 .settings-card header h2 { font-size: 14px; margin: 0; }
-.settings-body { display: flex; flex-direction: column; gap: 12px; padding-top: 8px; }
+.settings-body { display: flex; flex-direction: column; gap: 14px; padding-top: 12px; }
 .settings-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .settings-row span { min-width: 160px; }
 .settings-row span strong { font-size: 13px; display: block; }
-.settings-row span p { font-size: 11px; color: var(--text-muted); margin: 2px 0 0; }
-.segmented { display: inline-flex; gap: 2px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 2px; background: var(--surface-muted); }
-.segmented button { border: 0; background: transparent; border-radius: 6px; padding: 6px 11px; font-size: 12px; display: flex; gap: 5px; align-items: center; color: var(--text-secondary); }
+.settings-row span p { font-size: 12px; color: var(--text-muted); margin: 3px 0 0; }
+.segmented { display: inline-flex; gap: 2px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: 3px; background: color-mix(in srgb, var(--surface-muted) 80%, transparent); }
+.segmented button { border: 0; background: transparent; border-radius: var(--radius-sm); padding: 7px 12px; font-size: 12px; display: flex; gap: 5px; align-items: center; color: var(--text-secondary); transition: background 0.15s ease, color 0.15s ease; }
 .segmented button:hover { background: var(--surface-hover); }
-.segmented button.active { background: var(--accent-soft); color: var(--accent-strong); font-weight: 600; }
-.segmented.presence button { padding: 6px 10px; }
-.settings-row select { border: 1px solid var(--border-input); border-radius: var(--radius-sm); padding: 7px 10px; font-size: 12px; background: var(--surface); color: var(--text-primary); }
+.segmented button.active { background: var(--surface); color: var(--accent-strong); font-weight: 600; box-shadow: 0 1px 2px color-mix(in srgb, var(--shadow) 22%, transparent); }
+.segmented.presence button { padding: 7px 11px; }
+.settings-row select { border: 1px solid var(--border-input); border-radius: var(--radius-md); padding: 8px 11px; font-size: 12px; background: var(--surface); color: var(--text-primary); transition: border-color 0.15s ease, box-shadow 0.15s ease; }
+.settings-row select:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
 .toggle { width: 38px; height: 21px; border: 1px solid var(--border-strong); border-radius: 11px; background: var(--surface-muted); position: relative; }
 .toggle i { position: absolute; width: 15px; height: 15px; left: 3px; top: 2px; border-radius: 50%; background: var(--text-muted); transition: left 0.15s ease; }
 .toggle i.on { left: 19px; background: var(--accent); }
 .toggle[aria-checked="true"] { border-color: var(--accent); }
-.account-row { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-muted); }
+.account-row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--glass-spec) 24%, transparent); border-radius: var(--radius-md); background: color-mix(in srgb, var(--surface) 55%, transparent); }
 .account-copy { min-width: 0; flex: 1; }
 .account-copy strong { font-size: 13px; display: block; }
-.account-copy p { font-size: 11px; color: var(--text-muted); margin: 2px 0 0; }
+.account-copy p { font-size: 12px; color: var(--text-muted); margin: 3px 0 0; }
 .account-row em { font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); background: var(--surface-hover); border-radius: 8px; padding: 2px 8px; }
 .account-row em.offline, .account-row em.pending { color: var(--danger); background: color-mix(in srgb, var(--danger) 15%, var(--surface)); }
 .account-row em.online { color: var(--success); background: color-mix(in srgb, var(--success) 15%, var(--surface)); }
-.danger-button { border: 0; background: transparent; border-radius: var(--radius-sm); padding: 6px; display: grid; place-items: center; color: var(--danger); }
+.danger-button { border: 0; background: transparent; border-radius: var(--radius-md); padding: 7px; display: grid; place-items: center; color: var(--danger); transition: background 0.15s ease; }
 .danger-button:hover { background: color-mix(in srgb, var(--danger) 12%, var(--surface)); }
-.account-form { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 12px; padding: 12px 16px; border: 1px dashed var(--border-strong); border-radius: var(--radius-md); }
-.usage-grid { display: grid; grid-template-columns: repeat(3, minmax(120px, 1fr)); gap: 8px; }
-.usage-grid span { font-size: 12px; color: var(--text-secondary); display: flex; justify-content: space-between; }
-.usage-grid em { color: var(--text-primary); }
+.account-form { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 14px; padding: 14px 16px; border: 1px dashed var(--border-strong); border-radius: var(--radius-lg); }
+/* Storage read as one flat list row per metric. Stacked, the label becomes a
+   caption above a value, so six numbers scan as a small dashboard. The markup is
+   `Label <em>value</em>`: the label is an anonymous text node (so it takes the
+   tile's caption styling) and the <em> is the value. `em` is italic by default,
+   which never looked intentional on a number. */
+.usage-grid { display: grid; grid-template-columns: repeat(3, minmax(120px, 1fr)); gap: 10px; }
+.usage-grid span { display: flex; flex-direction: column; gap: 5px; padding: 13px 15px; font-size: 12px; color: var(--text-muted); border: 1px solid color-mix(in srgb, var(--glass-spec) 24%, transparent); border-radius: var(--radius-md); background: color-mix(in srgb, var(--surface) 55%, transparent); }
+.usage-grid em { font-style: normal; color: var(--text-primary); font-size: 17px; font-weight: 650; line-height: 1.1; letter-spacing: -0.3px; }
 .usage-grid em.strong { color: var(--accent-strong); font-weight: 700; }
 .queue-stats { font-size: 12px; color: var(--text-secondary); }
 .queue-stats em { color: var(--accent-strong); font-weight: 650; }
 .account-row em.account-state.connected { color: var(--success); background: color-mix(in srgb, var(--success) 15%, var(--surface)); }
 .account-row em.account-state.error { color: var(--danger); background: color-mix(in srgb, var(--danger) 15%, var(--surface)); }
-.ghost-button { border: 0; background: transparent; border-radius: var(--radius-sm); padding: 6px; display: grid; place-items: center; color: var(--text-secondary); }
+.ghost-button { border: 0; background: transparent; border-radius: var(--radius-md); padding: 7px; display: grid; place-items: center; color: var(--text-secondary); transition: background 0.15s ease, color 0.15s ease; }
 .ghost-button:hover { background: var(--surface-hover); color: var(--accent); }
 .ghost-button:disabled { opacity: 0.55; }
 .spin { animation: relay-spin 0.9s linear infinite; }
 @keyframes relay-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
-@media (max-width: 800px) { .settings-workspace { grid-column: 1; } }
+@media (max-width: 800px) {
+  .settings-workspace { grid-column: 1; }
+  /* Three tiles of 120px plus gaps ask for 380px; two fit at any phone width. */
+  .usage-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* A 160px label beside a segmented control needs about 380px. Let the
+     control wrap under its label rather than overflow the card. */
+  .settings-row { flex-wrap: wrap; row-gap: 8px; }
+}

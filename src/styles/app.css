@@ -1,15 +1,57 @@
 body { margin: 0; min-width: 0; min-height: 100vh; background: var(--background); color: var(--text-primary); }
-.shell { position: relative; height: 100vh; display: grid; grid-template-columns: var(--shell-sidebar, 248px) minmax(300px, 420px) minmax(430px, 1fr); grid-template-rows: 64px 1fr 28px; background: var(--surface); overflow: hidden; }
+/* Bento shell: every region is a floating glass card separated by --bento-gap,
+   over the drifting colour field painted by .shell::before. One variable drives
+   the padding, the gaps and both splitter offsets, so the layout stays
+   consistent at every breakpoint. */
+.shell {
+  --bento-gap: 14px;
+  position: relative;
+  /* The drifting colour layer below paints at z-index -1; `isolation` keeps it
+     behind the content but above the shell's own background. */
+  isolation: isolate;
+  height: 100vh;
+  display: grid;
+  grid-template-columns: var(--shell-sidebar, 248px) minmax(300px, 420px) minmax(430px, 1fr);
+  grid-template-rows: 64px 1fr 28px;
+  gap: var(--bento-gap);
+  padding: var(--bento-gap);
+  background: var(--background);
+  overflow: hidden;
+}
 
-.topbar { grid-column: 1/-1; display: flex; align-items: center; gap: 12px; padding: 0 22px; border-bottom: 1px solid var(--border); background: var(--topbar-bg); }
+/* The light behind the glass. Two blurred accent fields drift with a
+   transform-only animation, so the compositor moves an already-blurred layer
+   instead of repainting the blur on every frame. */
+.shell::before {
+  content: '';
+  position: absolute;
+  inset: -20%;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(38% 42% at 18% 24%, color-mix(in srgb, var(--accent) 40%, transparent), transparent 70%),
+    radial-gradient(34% 38% at 82% 76%, color-mix(in srgb, var(--accent) 28%, transparent), transparent 70%),
+    radial-gradient(30% 32% at 62% 16%, color-mix(in srgb, var(--success) 18%, transparent), transparent 70%);
+  filter: blur(60px);
+  animation: liquid-drift 28s ease-in-out infinite alternate;
+}
+@keyframes liquid-drift {
+  from { transform: translate3d(-3%, -2%, 0) scale(1); }
+  to { transform: translate3d(4%, 3%, 0) scale(1.12); }
+}
+
+/* Floating glass bar; its surface, rim and blur come from the liquid glass
+   recipe below. */
+.topbar { grid-column: 1/-1; display: flex; align-items: center; gap: 12px; padding: 0 20px; border-radius: var(--radius-lg); }
 .brand { font-size: 22px; font-weight: 720; letter-spacing: -1px; display: flex; align-items: center; gap: 8px; }
-.brand-mark { display: grid; place-items: center; width: 27px; height: 27px; border-radius: 9px; background: var(--accent); color: var(--accent-on); font-size: 15px; }
+.brand-mark { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 10px; background: var(--accent); color: var(--accent-on); font-size: 15px; box-shadow: 0 6px 14px -8px color-mix(in srgb, var(--accent) 80%, transparent); }
 .workspace { border: 0; border-left: 1px solid var(--border); background: transparent; display: flex; gap: 5px; align-items: center; padding: 5px 14px; font-size: 13px; color: var(--text-secondary); }
-.search { max-width: 520px; flex: 1; margin: auto; display: flex; align-items: center; gap: 9px; height: 36px; padding: 0 10px; border: 1px solid var(--border-input); border-radius: var(--radius-md); background: var(--surface-muted); color: var(--text-secondary); }
+.search { max-width: 520px; flex: 1; min-width: 0; margin: auto; display: flex; align-items: center; gap: 9px; height: 38px; padding: 0 14px; border: 1px solid var(--border-input); border-radius: 999px; background: color-mix(in srgb, var(--surface) 72%, transparent); color: var(--text-secondary); transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease; }
+.search:hover { border-color: var(--border-strong); background: color-mix(in srgb, var(--surface-hover) 80%, transparent); }
 .search input { flex: 1; border: 0; background: transparent; outline: 0; font-size: 13px; cursor: pointer; }
 .search kbd { font-size: 11px; background: var(--surface-hover); border-radius: 4px; padding: 2px 5px; color: var(--text-muted); }
 .top-actions { display: flex; align-items: center; gap: 12px; }
-.connection { font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 6px; }
+.connection { font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 7px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 999px; background: color-mix(in srgb, var(--surface) 58%, transparent); white-space: nowrap; }
 .connection i, .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); display: inline-block; }
 .connection.offline i, .dot.offline, .connection.error i, .dot.error { background: var(--danger); }
 .connection.synchronizing i, .dot.synchronizing { background: var(--warning); }
@@ -26,10 +68,12 @@ body { margin: 0; min-width: 0; min-height: 100vh; background: var(--background)
 .auth-warning { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, var(--surface)); border-color: color-mix(in srgb, var(--danger) 40%, transparent); cursor: help; }
 /* Mail sync: the account-dependent download action and its progress line. */
 .pane-heading-actions { display: flex; align-items: center; gap: 8px; }
-.mail-sync { display: flex; align-items: center; gap: 6px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text-secondary); border-radius: var(--radius-sm); padding: 5px 10px; font-size: 11.5px; font-weight: 600; }
+.mail-sync { display: flex; align-items: center; gap: 6px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text-secondary); border-radius: var(--radius-sm); padding: 6px 11px; font-size: 12px; font-weight: 600; }
 .mail-sync:hover:not(:disabled) { background: var(--surface-hover); color: var(--accent-strong); border-color: var(--accent); }
 .mail-sync:disabled { opacity: 0.55; cursor: not-allowed; }
-.mail-sync-note { margin: 0; padding: 6px 10px; font-size: 11px; color: var(--text-secondary); background: var(--surface-hover); border-radius: var(--radius-sm); }
+/* The note shares the 20px content gutter of the heading and tools rows; at
+   margin 0 it ran edge to edge across the whole card. */
+.mail-sync-note { margin: 0 20px 12px; padding: 7px 11px; font-size: 12px; color: var(--text-secondary); background: color-mix(in srgb, var(--accent) 8%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent); border-radius: var(--radius-md); }
 .presence i { width: 9px; height: 9px; border-radius: 50%; }
 .presence-online i { background: var(--success); }
 .presence-away i { background: var(--warning); }
@@ -59,12 +103,25 @@ button.presence:hover { background: var(--surface-hover); }
 .avatar, .mail-avatar, .chat-avatar, .contact-avatar { border: 0; border-radius: 50%; display: grid; place-items: center; font-weight: 650; }
 .avatar { width: 30px; height: 30px; background: var(--avatar-bold); color: #fff; font-size: 10px; }
 
-.sidebar { grid-row: 2; border-right: 1px solid var(--border); padding: 17px 12px 10px; background: var(--surface-muted); overflow: auto; }
+/* Navigation card; the 1px right divider is gone — the gap and the glass rim
+   separate it from the workspace. */
+.sidebar { grid-row: 2; padding: 17px 12px 10px; border-radius: var(--radius-xl); overflow: auto; }
 .compose-row { display: flex; gap: 8px; margin: 0 4px 14px; }
-.compose { border: 0; background: var(--accent); color: var(--accent-on); border-radius: var(--radius-md); display: flex; align-items: center; gap: 8px; justify-content: center; height: 37px; font-size: 13px; font-weight: 620; flex: 1; box-shadow: 0 2px 5px #315de433; }
-.collapse { width: 36px; border: 1px solid var(--border-input); background: var(--surface); border-radius: var(--radius-md); }
+.compose { border: 0; background: var(--accent); color: var(--accent-on); border-radius: var(--radius-md); display: flex; align-items: center; gap: 8px; justify-content: center; height: 44px; font-size: 13.5px; font-weight: 620; flex: 1; box-shadow: 0 10px 20px -12px color-mix(in srgb, var(--accent) 85%, transparent); transition: transform 0.15s ease, filter 0.15s ease, box-shadow 0.15s ease; }
+.compose:hover:not(:disabled) { filter: brightness(1.06); transform: translateY(-1px); }
+.compose:active:not(:disabled) { transform: translateY(0) scale(0.99); }
+/* The collapse control is the only way back out of the compact rail, so it has
+   to stay visible without competing with the primary Compose button beside it. */
+.collapse { width: 38px; border: 1px solid transparent; background: transparent; border-radius: var(--radius-md); color: var(--text-muted); transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease; }
+.collapse:hover { background: var(--surface-hover); border-color: var(--border); color: var(--accent-strong); }
 .nav-title, .eyebrow { font-size: 10px; color: var(--text-muted); font-weight: 750; letter-spacing: 0.08em; margin: 21px 10px 7px; }
-.nav-item { width: 100%; height: 35px; padding: 0 10px; border: 0; background: transparent; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 11px; font-size: 13px; color: var(--text-secondary); text-align: left; }
+/* That margin belongs to a nav section, not to a card header: inside a header it
+   pushed the eyebrow 21px down and indented it 10px, so it no longer lined up
+   with the title beneath it and the control on the right centred against a
+   phantom height. */
+.settings-header .eyebrow,
+.contacts-toolbar .eyebrow { margin: 0 0 5px; }
+.nav-item { width: 100%; height: 36px; padding: 0 10px; border: 0; background: transparent; border-radius: var(--radius-md); display: flex; align-items: center; gap: 11px; font-size: 13px; color: var(--text-secondary); text-align: left; transition: background 0.15s ease, color 0.15s ease; }
 .nav-item:hover { background: var(--surface-hover); }
 .nav-item.active { color: var(--accent-strong); background: var(--surface-active); font-weight: 650; }
 .nav-item svg { flex: 0 0 auto; }
@@ -73,22 +130,38 @@ button.presence:hover { background: var(--surface-hover); }
 .pane-splitter::after { content: ''; position: absolute; top: 0; bottom: 0; left: 3px; width: 1px; background: transparent; transition: background 0.15s ease; }
 .pane-splitter:hover::after, .pane-splitter.dragging::after { background: var(--accent); }
 .pane-splitter:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 3px; }
-.sidebar-splitter { left: calc(var(--shell-sidebar, 248px) - 3px); top: 64px; bottom: 28px; }
+/* The divider now sits in the gap between the two cards: shell padding + the
+   sidebar's own width + half the gap. `left` offsets the visible hairline itself
+   (.pane-splitter draws its 1px line at the box's left edge). */
+.sidebar-splitter { left: calc(var(--bento-gap) + var(--shell-sidebar, 248px) + var(--bento-gap) / 2); top: calc(var(--bento-gap) * 2 + 64px); bottom: calc(var(--bento-gap) * 2 + 28px); }
 .compact .pane-splitter { display: none; }
 .compact { grid-template-columns: 70px minmax(300px, 420px) minmax(430px, 1fr); }
 .compact .sidebar { padding: 17px 10px; }
 .compact .compose span, .compact .nav-item span, .compact .nav-item em, .compact .nav-title { display: none; }
-.compact .compose { width: 38px; flex: 0 0 38px; }
 .compact .nav-item { justify-content: center; padding: 0; }
+/* The collapse control must never leave the rail. Compact mode has 42px of
+   usable width (70px column − 20px padding − 8px margins) and cannot fit two
+   38px buttons side by side, which pushed the expand button past the visible
+   edge — and with the splitter hidden there, it was the only way back. Stacking
+   it under Compose keeps both reachable and removes the row overflow. */
+.compact .compose-row { flex-direction: column; gap: 8px; }
+.compact .compose { width: 100%; flex: 0 0 auto; }
+/* In a column the button no longer stretches to Compose's height, so it needs
+   its own. */
+.compact .collapse { width: 100%; height: 40px; }
 
-.statusbar { grid-column: 1/-1; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; background: var(--statusbar-bg); border-top: 1px solid var(--border); color: var(--text-muted); font-size: 10px; }
+/* Equal tracks centre the middle status line for real; `space-between` only
+   centres it while both side items happen to be the same width. */
+.statusbar { grid-column: 1/-1; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; padding: 0 16px; border-radius: var(--radius-md); color: var(--text-secondary); font-size: 11px; }
 .statusbar span { display: flex; gap: 6px; align-items: center; }
+.statusbar span:nth-child(2) { justify-self: center; }
+.statusbar span:last-child { justify-self: end; }
 .load-error, .notification-error { color: var(--danger); font-size: 12px; padding: 8px 16px; }
 .settings-notice { color: var(--success); font-size: 12px; padding: 8px 16px; }
 .muted { font-size: 12px; color: var(--text-muted); }
 .mobile-only { display: none; }
 
-.help-popover { position: fixed; right: 18px; bottom: 40px; z-index: 12; width: 320px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); box-shadow: 0 16px 44px var(--shadow); padding: 14px 16px; }
+.help-popover { position: fixed; right: 26px; bottom: 52px; z-index: 12; width: 320px; border-radius: var(--radius-xl); padding: 16px 18px; animation: pop-in 0.18s cubic-bezier(0.22, 0.8, 0.3, 1) both; }
 .help-popover header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
 .help-popover header strong { font-size: 13px; }
 .help-popover header button { border: 0; background: transparent; color: var(--text-muted); display: grid; place-items: center; padding: 4px; border-radius: var(--radius-sm); }
@@ -99,23 +172,121 @@ button.presence:hover { background: var(--surface-hover); }
 .shortcut-list dt { color: var(--text-secondary); }
 .shortcut-list dd { margin: 0; background: var(--surface-hover); border: 1px solid var(--border); border-radius: 5px; padding: 1px 7px; font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }
 
+/* ── Liquid glass ───────────────────────────────────────────────────────────
+   One recipe for every bento surface and overlay. The translucent fill is
+   clipped to the padding box while an angled white gradient is clipped to the
+   border box, which is what reads as a light-catching refractive rim; the two
+   inset shadows are the top and bottom speculars. Real edge refraction needs an
+   SVG displacement map, which WebView2 does not support reliably in
+   backdrop-filter, so it is simulated with these layers instead. */
+.topbar,
+.statusbar,
+.sidebar,
+.list-pane,
+.reading-pane,
+.channel-list,
+.chat,
+.settings-workspace,
+.contacts-workspace,
+.composer,
+.palette,
+.notification-panel,
+.help-popover,
+.actions-menu {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(color-mix(in srgb, var(--surface) var(--glass-strength), transparent), color-mix(in srgb, var(--surface) var(--glass-strength), transparent)) padding-box,
+    linear-gradient(140deg, var(--glass-spec) 0%, transparent 32%, transparent 62%, var(--glass-spec-soft) 100%) border-box;
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.55) brightness(1.03);
+  box-shadow:
+    inset 0 1px 1px var(--glass-spec),
+    inset 0 -1px 1px var(--glass-spec-soft),
+    0 1px 2px color-mix(in srgb, var(--shadow) 22%, transparent),
+    0 24px 60px -34px color-mix(in srgb, var(--shadow) 100%, transparent);
+}
+/* Hover brightens the rim rather than moving the panel: the light in the glass
+   responds, the layout does not. */
+.topbar:hover,
+.sidebar:hover,
+.list-pane:hover,
+.reading-pane:hover,
+.channel-list:hover,
+.chat:hover { border-color: color-mix(in srgb, var(--glass-spec) 45%, transparent); }
+
+.mail-workspace,
+.settings-workspace,
+.contacts-workspace,
+.messenger-workspace { animation: view-in 0.2s ease both; }
+
+@keyframes view-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes pop-in { from { opacity: 0; transform: translateY(6px) scale(0.985); } to { opacity: 1; transform: none; } }
+
+/* No backdrop-filter (older engine): fall back to solid surfaces rather than
+   leaving the panels see-through and unreadable. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .topbar, .statusbar, .sidebar, .list-pane, .reading-pane, .channel-list, .chat, .settings-workspace, .contacts-workspace, .composer, .palette, .notification-panel, .help-popover, .actions-menu {
+    background: var(--surface);
+    border-color: var(--border);
+  }
+}
+
 @media (max-width: 1050px) {
-  .shell { grid-template-columns: 210px minmax(290px, 380px) minmax(370px, 1fr); }
+  /* The three columns must fit inside a window narrower than their combined
+     minimum. These track minimums totalled 926px, so in the 801–926px band the
+     grid overflowed and `.shell`'s `overflow: hidden` silently cut off the
+     right edge of the reading pane with nothing to scroll it back into view.
+     The widths are the floor, not the target: each track still grows to share
+     the space, so nothing here changes a window that already had room. */
+  .shell { grid-template-columns: 190px minmax(250px, 340px) minmax(290px, 1fr); }
   .connection { display: none; }
   .search { max-width: 380px; }
   .sidebar-splitter { display: none; }
 }
 @media (max-width: 800px) {
   body { min-width: 0; }
-  .shell { grid-template-columns: 1fr; grid-template-rows: 58px 1fr 28px; }
+  /* Below this width the bento gaps and radii collapse: a phone-sized window
+     goes full-bleed again, so the fixed sidebar drawer still covers edge to
+     edge and no content is wasted on chrome. */
+  .shell { grid-template-columns: 1fr; grid-template-rows: 58px 1fr 28px; --bento-gap: 0; gap: 0; padding: 0; }
+  .topbar, .statusbar, .sidebar, .list-pane, .reading-pane, .channel-list, .chat, .settings-workspace, .contacts-workspace { border: 0; border-radius: 0; box-shadow: none; background: var(--surface); backdrop-filter: none; }
   .sidebar, .reading-pane { display: none; }
-  .sidebar.open { display: block; position: fixed; top: 0; bottom: 0; left: 0; width: min(300px, 86vw); z-index: 70; box-shadow: 0 0 40px var(--shadow); overflow: auto; }
+  .sidebar.open { display: block; position: fixed; top: 0; bottom: 0; left: 0; width: min(300px, 86vw); z-index: 70; box-shadow: 0 0 40px var(--shadow); overflow: auto; border-radius: 0 var(--radius-lg) var(--radius-lg) 0; }
   .sidebar-backdrop { display: block; position: fixed; inset: 0; z-index: 60; background: var(--backdrop); border: 0; padding: 0; }
-  .topbar { padding: 0 12px; }
+  .topbar { padding: 0 12px; gap: 8px; }
+  .top-actions { gap: 8px; }
   .mobile-only { display: grid; }
   .workspace { display: none; }
   .search { margin: 0; }
   .pane-splitter { display: none; }
-  .statusbar { grid-row: 3; }
+  .statusbar { grid-row: 3; grid-template-columns: auto minmax(0, 1fr) auto; }
   .compact { grid-template-columns: 1fr; }
+  /* The popovers above the list are anchored for the 64px desktop top bar and
+     a 14px shell padding; the phone bar is 58px tall with no padding at all. */
+  .help-popover { right: 12px; bottom: 40px; }
+  /* Touch-sized targets: 36px rows and 32px icon buttons are comfortable with a
+     mouse and mis-tappable with a finger. */
+  .nav-item { height: 44px; }
+  .icon-button { padding: 10px; }
+}
+/* Two or three controls plus the wordmark stop fitting together here. The
+   `kbd` is a keyboard shortcut hint and the status bar's is a keyboard hint
+   too, so both go rather than the icons that perform real actions. */
+@media (max-width: 640px) {
+  .search kbd, .statusbar span:last-child { display: none; }
+  /* A long status note ("31 changes need retry") would push the other two
+     spans out of the bar; clip it instead of overflowing the window. */
+  .statusbar span:nth-child(2) { min-width: 0; overflow: hidden; white-space: nowrap; }
+}
+/* The mark identifies the app; the wordmark next to it is the first thing that
+   can go when only a few pixels of the bar are left for real controls. Both are
+   spans, so the wordmark is targeted specifically — `.brand span` would take the
+   logo mark with it. */
+@media (max-width: 480px) {
+  .brand > span:last-child { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mail-workspace, .settings-workspace, .contacts-workspace, .messenger-workspace, .help-popover { animation: none; }
+  /* The drifting colour field is ambient motion; it stops entirely. */
+  .shell::before { animation: none; }
 }

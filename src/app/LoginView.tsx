@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Eye, EyeOff, Inbox, Loader2, LockKeyhole, ShieldCheck } from 'lucide-react';
+import { CircleAlert, Eye, EyeOff, Inbox, Loader2, LockKeyhole, Mail, ShieldCheck, Zap } from 'lucide-react';
 import { addEmailAccount, autoSignIn, cancelGoogleSignIn, commandError, forgetOAuthClientId, getAppSettings, googleOAuthSignIn, isNative, type Account, type CreateAccountInput } from '../platform/tauri';
 import { looksLikeGoogleMailbox, oauthClientIdIssue, oauthClientSecretIssue } from './util';
 
@@ -12,6 +12,21 @@ const PROVIDERS: { id: string; label: string; imapHost: string; imapPort: number
     hint: 'Yahoo requires an App Password (Account security → Generate app password).' },
   { id: 'custom', label: 'Custom IMAP/SMTP', imapHost: '', imapPort: 993, smtpHost: '', smtpPort: 465, encryption: 'ssl' },
 ];
+/// Google's sign-in mark in the four official brand colours. Google's branding
+/// rules require the multi-colour "G" on a sign-in button rather than a
+/// monochrome glyph or the app's accent colour, so it is inlined instead of
+/// being approximated with a lucide icon. Purely decorative — the button's own
+/// label is the accessible name.
+function GoogleMark() {
+  return (
+    <svg className="google-mark" width="18" height="18" viewBox="0 0 48 48" aria-hidden="true" focusable="false">
+      <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
+      <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
+      <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
+      <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
+    </svg>
+  );
+}
 
 /// First-run email sign-in (shown until at least one account has signed in).
 /// The password is verified against the real IMAP server by the native layer
@@ -152,30 +167,76 @@ export function LoginView({ onSignedIn, onSkip }: { onSignedIn: (account: Accoun
     }
   };
 
+  // Bento composition: the brand column is decorative, while every control lives
+  // in the login card beside it, so no decoration can push the form out of the
+  // viewport. Presentation only — the sign-in flow above is untouched.
   return <section className="login-screen">
-    <form className="login-card" onSubmit={event => { event.preventDefault(); void submit(); }}>
-      <header className="login-header">
-        <span className="login-mark"><Inbox size={22} /></span>
-        <h1>Sign in to Relay</h1>
-        <p>Connect your email account. Everything is stored locally on this device.</p>
-      </header>
-      <div className="login-primary">
-        <input placeholder="Email address" type="email" value={autoEmail} onChange={event => setAutoEmail(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); if (autoEmail.trim() && autoPassword) void signInAutomatically(); } }} aria-label="Email address" autoComplete="email" />
-        <div className="password-row">
-          <input placeholder="Password" type={autoShowPassword ? 'text' : 'password'} value={autoPassword} onChange={event => setAutoPassword(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); if (autoEmail.trim() && autoPassword) void signInAutomatically(); } }} aria-label="Password" autoComplete="current-password" />
-          <button type="button" className="icon-button" aria-label={autoShowPassword ? 'Hide password' : 'Show password'} onClick={() => setAutoShowPassword(visible => !visible)}>{autoShowPassword ? <EyeOff size={16} /> : <Eye size={16} />}</button>
+    <div className="bento">
+      <aside className="bento-brand bento-card">
+        <div className="brand-topline">
+          <span className="login-mark"><Inbox size={20} /></span>
+          <span className="brand-wordmark">relay</span>
         </div>
-        {progress && <p className="login-progress" aria-live="polite">{progress}</p>}
+        <div className="brand-copy">
+          <h2>Your communication workspace</h2>
+          <p>Mail and conversations, beautifully organized — stored locally on this device.</p>
+        </div>
+        <div className="bento-features">
+          {/* Parallel, equal-length copy: the two cards sit side by side, so
+              uneven descriptions made them wrap to different heights. */}
+          <div className="feature-card">
+            <span className="feature-icon"><ShieldCheck size={16} /></span>
+            <strong>Secure</strong>
+            <p>Stored in the OS credential manager.</p>
+          </div>
+          <div className="feature-card">
+            <span className="feature-icon"><Zap size={16} /></span>
+            <strong>Local-first</strong>
+            <p>Available offline on this device.</p>
+          </div>
+        </div>
+        <span className="brand-orb" aria-hidden="true" />
+      </aside>
+      <form className="login-card bento-card" onSubmit={event => { event.preventDefault(); void submit(); }}>
+        <header className="login-header">
+          <h1>Welcome back</h1>
+          <p>Sign in to continue to Relay.</p>
+        </header>
+        <div className="login-primary">
+          <div className="login-field">
+            <label htmlFor="relay-email">Email address</label>
+            <div className="field-shell">
+              <Mail size={16} aria-hidden="true" />
+              <input id="relay-email" placeholder="you@example.com" type="email" value={autoEmail} onChange={event => setAutoEmail(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); if (autoEmail.trim() && autoPassword) void signInAutomatically(); } }} aria-label="Email address" autoComplete="email" />
+            </div>
+          </div>
+          <div className="login-field">
+            <label htmlFor="relay-password">Password</label>
+            <div className="password-row">
+              <input id="relay-password" placeholder="Your account password" type={autoShowPassword ? 'text' : 'password'} value={autoPassword} onChange={event => setAutoPassword(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); if (autoEmail.trim() && autoPassword) void signInAutomatically(); } }} aria-label="Password" autoComplete="current-password" />
+              <button type="button" className="icon-button" aria-label={autoShowPassword ? 'Hide password' : 'Show password'} onClick={() => setAutoShowPassword(visible => !visible)}>{autoShowPassword ? <EyeOff size={16} /> : <Eye size={16} />}</button>
+            </div>
+          </div>
+          {progress && <p className="login-progress" aria-live="polite">{autoBusy && <Loader2 size={14} className="spin" />}{progress}</p>}
         {googleMailbox ? <>
           {/* Google first, because Google refuses a normal password for these
               mailboxes: leading with the password invited a refusal the user
               could do nothing about. The App Password route stays available for
               anyone who has created one. */}
-          <button type="button" className="login-submit" disabled={oauthBusy} onClick={() => void signInWithGoogle()}>{oauthBusy ? <Loader2 size={16} className="spin" /> : <LockKeyhole size={16} />} {oauthBusy ? 'Waiting for Google…' : 'Continue with Google'}</button>
+          <button type="button" className="login-submit login-google" disabled={oauthBusy} onClick={() => void signInWithGoogle()}>{oauthBusy ? <Loader2 size={16} className="spin" /> : <GoogleMark />} {oauthBusy ? 'Waiting for Google…' : 'Continue with Google'}</button>
           {oauthBusy && <button type="button" className="oauth-forget" onClick={() => void cancelGoogle()}>Cancel</button>}
           <button type="button" className="login-advanced" disabled={autoBusy} onClick={() => void signInAutomatically()}>{autoBusy ? 'Signing in…' : 'Use an App Password instead'}</button>
-        </> : <button type="button" className="login-submit" disabled={autoBusy} onClick={() => void signInAutomatically()}>{autoBusy ? <Loader2 size={16} className="spin" /> : <LockKeyhole size={16} />} {autoBusy ? 'Signing in…' : 'Sign in'}</button>}
+        </> : <>
+          {/* The Google button below calls the same `signInWithGoogle` as the
+              one above, so the OAuth route is one click away for every mailbox.
+              With no client id configured it opens the OAuth panel further
+              down, exactly as before — no second sign-in implementation. */}
+          <button type="button" className="login-submit" disabled={autoBusy} onClick={() => void signInAutomatically()}>{autoBusy ? <Loader2 size={16} className="spin" /> : <LockKeyhole size={16} />} {autoBusy ? 'Signing in…' : 'Continue'}</button>
+          <div className="login-divider"><span>or</span></div>
+          <button type="button" className="login-submit login-google" disabled={oauthBusy} onClick={() => void signInWithGoogle()}>{oauthBusy ? <Loader2 size={16} className="spin" /> : <GoogleMark />} {oauthBusy ? 'Waiting for Google…' : 'Continue with Google'}</button>
+        </>}
       </div>
+      {error && <p className="login-error" role="alert"><CircleAlert size={16} aria-hidden="true" />{error}</p>}
       <details className="login-more">
         <summary>Manual server settings (IMAP / SMTP)</summary>
       <div className="login-providers" role="radiogroup" aria-label="Email provider">
@@ -234,11 +295,11 @@ export function LoginView({ onSignedIn, onSkip }: { onSignedIn: (account: Accoun
           {oauthRemembered && <button type="button" className="oauth-forget" onClick={() => void forgetClientId()}>Forget the saved Google client (id and secret)</button>}
         </div>
       </details>
-      {error && <p className="login-error" role="alert">{error}</p>}
       <footer className="login-foot">
         <span><ShieldCheck size={14} /> Your password goes into the OS credential manager — never into this app's database.</span>
         <button type="button" className="login-skip" onClick={onSkip}>Skip for now — explore the workspace</button>
       </footer>
-    </form>
+      </form>
+    </div>
   </section>;
 }

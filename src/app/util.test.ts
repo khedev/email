@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cleanAddressLabel, connectionView, formatBytes, formatDate, initials, looksLikeGoogleMailbox, oauthClientIdIssue, oauthClientSecretIssue, parseAddresses, stripEmail } from './util';
+import { cleanAddressLabel, connectionView, formatBytes, formatDate, formatDateTime, initials, looksLikeGoogleMailbox, oauthClientIdIssue, oauthClientSecretIssue, parseAddresses, stripEmail } from './util';
 
 describe('initials', () => {
   it('builds up-to-two-letter initials', () => {
@@ -54,6 +54,23 @@ describe('formatDate', () => {
   });
   it('returns a short time label for right-now values', () => {
     expect(formatDate(new Date().toISOString()).length).toBeGreaterThan(0);
+  });
+});
+
+describe('formatDateTime', () => {
+  it('passes through unparseable values', () => {
+    expect(formatDateTime('not-a-date')).toBe('not-a-date');
+  });
+  it('always carries a clock time, including for mail received today', () => {
+    // `formatDate` alone would collapse this to a bare time and lose the day.
+    const stamp = formatDateTime(new Date().toISOString());
+    expect(stamp).toMatch(/\d{1,2}:\d{2}/);
+    expect(stamp.length).toBeGreaterThan(formatDate(new Date().toISOString()).length);
+  });
+  it('includes the day and month for older mail', () => {
+    const lastYear = new Date();
+    lastYear.setFullYear(lastYear.getFullYear() - 2);
+    expect(formatDateTime(lastYear.toISOString())).toMatch(/\d{4}/);
   });
 });
 
